@@ -28,6 +28,7 @@ kotlin {
                 implementation(libs.materia.engine)
                 implementation(libs.compose.runtime)
                 implementation(libs.kotlinx.coroutines.core)
+                implementation(libs.kotlinx.serialization.json)
             }
         }
 

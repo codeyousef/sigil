@@ -2,30 +2,36 @@ package io.github.codeyousef.sigil.sample.summon
 
 import kotlinx.browser.document
 import kotlinx.browser.window
-import kotlinx.serialization.json.Json
-import io.github.codeyousef.sigil.schema.GeometrySpec
-import io.github.codeyousef.sigil.schema.LightData
-import io.github.codeyousef.sigil.schema.MaterialSpec
-import io.github.codeyousef.sigil.schema.MeshData
 import io.github.codeyousef.sigil.schema.SigilScene
+import io.github.codeyousef.sigil.schema.SigilNodeData
+import io.github.codeyousef.sigil.schema.MeshData
+import io.github.codeyousef.sigil.schema.GroupData
+import io.github.codeyousef.sigil.schema.LightData
+import io.github.codeyousef.sigil.schema.CameraData
+import io.github.codeyousef.sigil.schema.GeometryType
+import io.github.codeyousef.sigil.schema.LightType
 import org.w3c.dom.HTMLCanvasElement
-import materia.engine.Scene
-import materia.engine.WebGPURenderer
-import materia.engine.PerspectiveCamera
-import materia.engine.EngineMesh
-import materia.engine.Group
-import materia.engine.BufferGeometry
-import materia.engine.BoxGeometry
-import materia.engine.SphereGeometry
-import materia.engine.PlaneGeometry
-import materia.engine.CylinderGeometry
-import materia.engine.StandardMaterial
-import materia.engine.BasicMaterial
-import materia.engine.DirectionalLight
-import materia.engine.AmbientLight
-import materia.engine.PointLight
-import materia.engine.Vector3
-import materia.engine.Color
+import io.materia.core.scene.Scene
+import io.materia.core.scene.Background
+import io.materia.core.scene.Mesh
+import io.materia.core.scene.Group
+import io.materia.renderer.webgpu.WebGPURenderer
+import io.materia.camera.PerspectiveCamera
+import io.materia.geometry.BufferGeometry
+import io.materia.geometry.primitives.BoxGeometry
+import io.materia.geometry.primitives.SphereGeometry
+import io.materia.geometry.primitives.PlaneGeometry
+import io.materia.geometry.primitives.CylinderGeometry
+import io.materia.material.MeshStandardMaterial
+import io.materia.material.MeshBasicMaterial
+import io.materia.lighting.AmbientLightImpl
+import io.materia.lighting.DirectionalLightImpl
+import io.materia.lighting.PointLightImpl
+import io.materia.lighting.DefaultLightingSystem
+import io.materia.core.math.Vector3
+import io.materia.core.math.Color
+import kotlinx.coroutines.GlobalScope
+import kotlinx.coroutines.launch
 import kotlin.math.PI
 
 /**
@@ -48,7 +54,7 @@ private fun hydrateScenes() {
         val sceneData = canvas.getAttribute("data-sigil-scene") ?: continue
 
         try {
-            val sigilScene = Json.decodeFromString(SigilScene.serializer(), sceneData)
+            val sigilScene = SigilScene.fromJson(sceneData)
             hydrateCanvas(canvas, sigilScene)
             console.log("Sigil scene hydrated successfully: ${canvas.id}")
         } catch (e: Exception) {
@@ -63,203 +69,239 @@ private fun hydrateScenes() {
 private fun hydrateCanvas(canvas: HTMLCanvasElement, sigilScene: SigilScene) {
     // Create Materia scene
     val scene = Scene()
+    val lightingSystem = DefaultLightingSystem()
 
-    // Set background color
-    sigilScene.environment?.backgroundColor?.let { bgColor ->
-        scene.background = Color(bgColor)
-    }
+    // Set background color from scene settings
+    scene.background = Background.Color(Color(sigilScene.settings.backgroundColor))
 
-    // Create camera
-    val cameraConfig = sigilScene.camera
+    // Create default camera
     val camera = PerspectiveCamera(
-        fov = cameraConfig.fov.toDouble(),
-        aspect = canvas.width.toDouble() / canvas.height.toDouble(),
-        near = cameraConfig.near.toDouble(),
-        far = cameraConfig.far.toDouble()
+        fov = 75f,
+        aspect = canvas.width.toFloat() / canvas.height.toFloat(),
+        near = 0.1f,
+        far = 1000f
     )
-    camera.position.set(
-        cameraConfig.position[0].toDouble(),
-        cameraConfig.position[1].toDouble(),
-        cameraConfig.position[2].toDouble()
-    )
-    camera.lookAt(Vector3(
-        cameraConfig.target[0].toDouble(),
-        cameraConfig.target[1].toDouble(),
-        cameraConfig.target[2].toDouble()
-    ))
+    camera.position.set(0f, 0f, 5f)
+    camera.lookAt(Vector3(0f, 0f, 0f))
 
     // Add nodes to scene
-    sigilScene.nodes.forEach { nodeData ->
-        when (nodeData) {
-            is MeshData -> {
-                val mesh = createMesh(nodeData)
-                scene.add(mesh)
-            }
-            is LightData -> {
-                val light = createLight(nodeData)
-                scene.add(light)
-            }
-            is io.github.codeyousef.sigil.schema.GroupData -> {
-                val group = createGroup(nodeData)
-                scene.add(group)
-            }
-            is io.github.codeyousef.sigil.schema.CameraData -> {
-                // Camera already configured above
+    sigilScene.rootNodes.forEach { nodeData ->
+        processNode(nodeData, scene, lightingSystem, camera)
+    }
+
+    // Create and configure renderer (async initialization)
+    GlobalScope.launch {
+        val renderer = WebGPURenderer(canvas)
+        renderer.setSize(canvas.width, canvas.height, false)
+
+        // Animation loop
+        fun animate() {
+            window.requestAnimationFrame { animate() }
+            renderer.render(scene, camera)
+        }
+
+        // Start rendering
+        animate()
+    }
+}
+
+/**
+ * Process a scene node, adding it to the scene or updating camera.
+ */
+private fun processNode(
+    nodeData: SigilNodeData,
+    scene: Scene,
+    lightingSystem: DefaultLightingSystem,
+    camera: PerspectiveCamera
+) {
+    when (nodeData) {
+        is MeshData -> {
+            val mesh = createMesh(nodeData)
+            scene.add(mesh)
+        }
+        is LightData -> {
+            addLight(nodeData, lightingSystem)
+        }
+        is GroupData -> {
+            val group = createGroup(nodeData, lightingSystem, camera)
+            scene.add(group)
+        }
+        is CameraData -> {
+            // Update camera from camera data
+            camera.fov = nodeData.fov
+            camera.near = nodeData.near
+            camera.far = nodeData.far
+            camera.position.set(
+                nodeData.position[0],
+                nodeData.position[1],
+                nodeData.position[2]
+            )
+            nodeData.lookAt?.let { target ->
+                camera.lookAt(Vector3(target[0], target[1], target[2]))
             }
         }
     }
-
-    // Create and configure renderer
-    val renderer = WebGPURenderer(js("{ canvas: canvas }"))
-    renderer.setSize(canvas.width, canvas.height)
-    renderer.setPixelRatio(window.devicePixelRatio)
-
-    // Animation loop
-    fun animate() {
-        window.requestAnimationFrame { animate() }
-        renderer.render(scene, camera)
-    }
-
-    // Start rendering
-    animate()
 }
 
 /**
  * Creates a Materia mesh from MeshData.
  */
-private fun createMesh(meshData: MeshData): EngineMesh {
-    val geometry = createGeometry(meshData.geometry)
-    val material = createMaterial(meshData.material)
-    val mesh = EngineMesh(geometry, material)
+private fun createMesh(meshData: MeshData): Mesh {
+    val geometry = createGeometry(meshData.geometryType, meshData.geometryParams)
+    val material = createMaterial(meshData.materialColor, meshData.metalness, meshData.roughness)
+    val mesh = Mesh(geometry, material)
 
-    meshData.transform?.let { transform ->
-        mesh.position.set(
-            transform.position[0].toDouble(),
-            transform.position[1].toDouble(),
-            transform.position[2].toDouble()
-        )
-        mesh.rotation.set(
-            transform.rotation[0].toDouble() * PI / 180.0,
-            transform.rotation[1].toDouble() * PI / 180.0,
-            transform.rotation[2].toDouble() * PI / 180.0
-        )
-        mesh.scale.set(
-            transform.scale[0].toDouble(),
-            transform.scale[1].toDouble(),
-            transform.scale[2].toDouble()
-        )
-    }
+    mesh.position.set(
+        meshData.position[0],
+        meshData.position[1],
+        meshData.position[2]
+    )
+    mesh.rotation.set(
+        meshData.rotation[0],
+        meshData.rotation[1],
+        meshData.rotation[2]
+    )
+    mesh.scale.set(
+        meshData.scale[0],
+        meshData.scale[1],
+        meshData.scale[2]
+    )
+    mesh.visible = meshData.visible
 
     return mesh
 }
 
 /**
- * Creates a BufferGeometry from GeometrySpec.
+ * Creates a BufferGeometry from GeometryType and params.
  */
-private fun createGeometry(spec: GeometrySpec): BufferGeometry {
-    return when (spec) {
-        is GeometrySpec.Box -> BoxGeometry(
-            width = spec.width.toDouble(),
-            height = spec.height.toDouble(),
-            depth = spec.depth.toDouble()
+private fun createGeometry(
+    type: GeometryType,
+    params: io.github.codeyousef.sigil.schema.GeometryParams
+): BufferGeometry {
+    return when (type) {
+        GeometryType.BOX -> BoxGeometry(
+            width = params.width,
+            height = params.height,
+            depth = params.depth
         )
-        is GeometrySpec.Sphere -> SphereGeometry(
-            radius = spec.radius.toDouble(),
-            widthSegments = spec.widthSegments,
-            heightSegments = spec.heightSegments
+        GeometryType.SPHERE -> SphereGeometry(
+            radius = params.radius,
+            widthSegments = params.widthSegments.coerceAtLeast(8),
+            heightSegments = params.heightSegments.coerceAtLeast(6)
         )
-        is GeometrySpec.Plane -> PlaneGeometry(
-            width = spec.width.toDouble(),
-            height = spec.height.toDouble()
+        GeometryType.PLANE -> PlaneGeometry(
+            width = params.width,
+            height = params.height
         )
-        is GeometrySpec.Cylinder -> CylinderGeometry(
-            radiusTop = spec.radiusTop.toDouble(),
-            radiusBottom = spec.radiusBottom.toDouble(),
-            height = spec.height.toDouble(),
-            radialSegments = spec.radialSegments
+        GeometryType.CYLINDER -> CylinderGeometry(
+            radiusTop = params.radiusTop,
+            radiusBottom = params.radiusBottom,
+            height = params.height,
+            radialSegments = params.radialSegments
         )
-        is GeometrySpec.Custom -> {
-            // For custom geometry, create a basic BufferGeometry
-            // Real implementation would parse indices, positions, normals, uvs
-            BufferGeometry()
+        else -> {
+            // For other geometry types, create a basic box as fallback
+            BoxGeometry(1f, 1f, 1f)
         }
     }
 }
 
 /**
- * Creates a Material from MaterialSpec.
+ * Creates a Material from color and PBR properties.
  */
-private fun createMaterial(spec: MaterialSpec): dynamic {
-    return when (spec) {
-        is MaterialSpec.Standard -> StandardMaterial(js("{" +
-            "color: ${spec.color}," +
-            "metalness: ${spec.metalness}," +
-            "roughness: ${spec.roughness}" +
-        "}"))
-        is MaterialSpec.Basic -> BasicMaterial(js("{" +
-            "color: ${spec.color}," +
-            "wireframe: ${spec.wireframe}" +
-        "}"))
-        is MaterialSpec.Custom -> {
-            // For custom materials, use BasicMaterial as fallback
-            BasicMaterial(js("{ color: 0xffffff }"))
+private fun createMaterial(
+    color: Int,
+    metalness: Float,
+    roughness: Float
+): io.materia.core.scene.Material {
+    return if (metalness > 0f || roughness < 1f) {
+        MeshStandardMaterial(
+            color = Color(color),
+            metalness = metalness,
+            roughness = roughness
+        )
+    } else {
+        MeshBasicMaterial().apply {
+            this.color = Color(color)
         }
     }
 }
 
 /**
- * Creates a light from LightData.
+ * Adds a light to the LightingSystem from LightData.
  */
-private fun createLight(lightData: LightData): dynamic {
-    val light = when (lightData.type) {
-        "directional" -> DirectionalLight(lightData.color, lightData.intensity.toDouble())
-        "ambient" -> AmbientLight(lightData.color, lightData.intensity.toDouble())
-        "point" -> PointLight(lightData.color, lightData.intensity.toDouble())
-        else -> AmbientLight(lightData.color, lightData.intensity.toDouble())
+private fun addLight(lightData: LightData, lightingSystem: DefaultLightingSystem) {
+    val position = lightData.position
+    val lightColor = Color(lightData.color)
+    
+    when (lightData.lightType) {
+        LightType.DIRECTIONAL -> {
+            val direction = Vector3(-position[0], -position[1], -position[2])
+            lightingSystem.addLight(DirectionalLightImpl(
+                color = lightColor,
+                intensity = lightData.intensity,
+                direction = direction
+            ))
+        }
+        LightType.AMBIENT -> {
+            lightingSystem.addLight(AmbientLightImpl(
+                color = lightColor,
+                intensity = lightData.intensity
+            ))
+        }
+        LightType.POINT -> {
+            lightingSystem.addLight(PointLightImpl(
+                color = lightColor,
+                intensity = lightData.intensity,
+                position = Vector3(position[0], position[1], position[2]),
+                distance = lightData.distance.takeIf { it > 0 } ?: 100f,
+                decay = lightData.decay
+            ))
+        }
+        else -> {
+            // Fallback to ambient light for unsupported types
+            lightingSystem.addLight(AmbientLightImpl(
+                color = lightColor,
+                intensity = lightData.intensity
+            ))
+        }
     }
-
-    lightData.transform?.let { transform ->
-        light.position.set(
-            transform.position[0].toDouble(),
-            transform.position[1].toDouble(),
-            transform.position[2].toDouble()
-        )
-    }
-
-    return light
 }
 
 /**
  * Creates a group with children from GroupData.
  */
-private fun createGroup(groupData: io.github.codeyousef.sigil.schema.GroupData): Group {
+private fun createGroup(
+    groupData: GroupData,
+    lightingSystem: DefaultLightingSystem,
+    camera: PerspectiveCamera
+): Group {
     val group = Group()
 
-    groupData.transform?.let { transform ->
-        group.position.set(
-            transform.position[0].toDouble(),
-            transform.position[1].toDouble(),
-            transform.position[2].toDouble()
-        )
-        group.rotation.set(
-            transform.rotation[0].toDouble() * PI / 180.0,
-            transform.rotation[1].toDouble() * PI / 180.0,
-            transform.rotation[2].toDouble() * PI / 180.0
-        )
-        group.scale.set(
-            transform.scale[0].toDouble(),
-            transform.scale[1].toDouble(),
-            transform.scale[2].toDouble()
-        )
-    }
+    group.position.set(
+        groupData.position[0],
+        groupData.position[1],
+        groupData.position[2]
+    )
+    group.rotation.set(
+        groupData.rotation[0],
+        groupData.rotation[1],
+        groupData.rotation[2]
+    )
+    group.scale.set(
+        groupData.scale[0],
+        groupData.scale[1],
+        groupData.scale[2]
+    )
+    group.visible = groupData.visible
 
     // Add children
     groupData.children.forEach { childData ->
         when (childData) {
             is MeshData -> group.add(createMesh(childData))
-            is LightData -> group.add(createLight(childData))
-            is io.github.codeyousef.sigil.schema.GroupData -> group.add(createGroup(childData))
-            is io.github.codeyousef.sigil.schema.CameraData -> { /* Cameras not added to groups */ }
+            is LightData -> addLight(childData, lightingSystem)
+            is GroupData -> group.add(createGroup(childData, lightingSystem, camera))
+            is CameraData -> { /* Cameras are handled at scene level */ }
         }
     }
 

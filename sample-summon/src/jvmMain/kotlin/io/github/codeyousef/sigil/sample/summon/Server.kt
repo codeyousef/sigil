@@ -23,7 +23,8 @@ import kotlinx.html.style
 import kotlinx.html.title
 import kotlinx.html.unsafe
 import codes.yousef.summon.core.PlatformRendererProvider
-import io.github.codeyousef.sigil.summon.MateriaCanvas
+import io.github.codeyousef.sigil.summon.canvas.MateriaCanvas
+import io.github.codeyousef.sigil.summon.context.SigilSummonContext
 
 fun main() {
     embeddedServer(Netty, port = 8080, module = Application::module)
@@ -159,7 +160,17 @@ private fun HTML.renderSamplePage() {
  * Uses Summon's PlatformRenderer to generate the HTML.
  */
 private fun renderMateriaCanvasToHtml(): String {
-    val scene = buildSampleScene()
+    // Create a server-side context
+    val context = SigilSummonContext.createServerContext()
+    
+    // Run the composable within the context to populate nodes
+    SigilSummonContext.withContext(context) {
+        // Call the sample scene composable which registers nodes
+        Sample3DScene()
+    }
+    
+    // Build the scene from collected nodes
+    val scene = context.buildScene()
 
     // Build the canvas HTML with embedded scene data
     return buildString {

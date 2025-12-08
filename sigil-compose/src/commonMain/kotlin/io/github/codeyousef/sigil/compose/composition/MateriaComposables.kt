@@ -14,36 +14,37 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import io.github.codeyousef.sigil.compose.applier.MateriaApplier
 import io.github.codeyousef.sigil.compose.node.MateriaNodeWrapper
-import io.materia.core.Object3D
-import io.materia.engine.scene.Scene
-import io.materia.engine.scene.EngineMesh
-import io.materia.engine.scene.Group
-import io.materia.engine.material.BasicMaterial
-import io.materia.engine.material.StandardMaterial
+import io.materia.core.scene.Object3D
+import io.materia.core.scene.Scene
+import io.materia.core.scene.Mesh
+import io.materia.core.scene.Group
+import io.materia.material.MeshBasicMaterial
+import io.materia.material.MeshStandardMaterial
 import io.materia.core.math.Color
 import io.materia.core.math.Vector3
-import io.materia.geometry.BoxGeometry
-import io.materia.geometry.SphereGeometry
-import io.materia.geometry.PlaneGeometry
-import io.materia.geometry.CylinderGeometry
+import io.materia.geometry.primitives.BoxGeometry
+import io.materia.geometry.primitives.SphereGeometry
+import io.materia.geometry.primitives.PlaneGeometry
+import io.materia.geometry.primitives.CylinderGeometry
 import io.materia.geometry.ConeGeometry
-import io.materia.geometry.TorusGeometry
+import io.materia.geometry.primitives.TorusGeometry
 import io.materia.geometry.CircleGeometry
-import io.materia.geometry.RingGeometry
+import io.materia.geometry.primitives.RingGeometry
 import io.materia.geometry.IcosahedronGeometry
 import io.materia.geometry.OctahedronGeometry
 import io.materia.geometry.TetrahedronGeometry
 import io.materia.geometry.DodecahedronGeometry
 import io.materia.geometry.BufferGeometry
-import io.materia.light.AmbientLight
-import io.materia.light.DirectionalLight
-import io.materia.light.PointLight
-import io.materia.light.SpotLight
-import io.materia.light.HemisphereLight
-import io.materia.engine.camera.PerspectiveCamera
-import io.materia.engine.camera.OrthographicCamera
+import io.materia.lighting.AmbientLightImpl
+import io.materia.lighting.DirectionalLightImpl
+import io.materia.lighting.PointLightImpl
+import io.materia.lighting.SpotLightImpl
+import io.materia.lighting.HemisphereLightImpl
+import io.materia.camera.PerspectiveCamera
+import io.materia.camera.OrthographicCamera
 import io.github.codeyousef.sigil.schema.GeometryType
 import io.github.codeyousef.sigil.schema.GeometryParams
+import io.github.codeyousef.sigil.compose.context.LocalMateriaLightingContext
 
 /**
  * Generic Composable node for creating Materia scene graph objects.
@@ -137,18 +138,20 @@ fun Mesh(
 
     val material = remember(color, metalness, roughness) {
         if (metalness > 0f || roughness < 1f) {
-            StandardMaterial(
-                color = intToColor(color),
-                metalness = metalness,
-                roughness = roughness
-            )
+            MeshStandardMaterial().apply {
+                this.color = intToColor(color)
+                this.metalness = metalness
+                this.roughness = roughness
+            }
         } else {
-            BasicMaterial(color = intToColor(color))
+            MeshBasicMaterial().apply {
+                this.color = intToColor(color)
+            }
         }
     }
 
     MateriaNode(
-        factory = { EngineMesh(geometry, material) },
+        factory = { Mesh(geometry, material) },
         update = { mesh ->
             mesh.position.copy(position)
             mesh.rotation.set(rotation.x, rotation.y, rotation.z)
@@ -304,23 +307,30 @@ fun Group(
 
 /**
  * Ambient light that illuminates all objects equally.
+ * 
+ * Note: Lights in Materia are managed through a LightingSystem rather than
+ * the scene graph. Ensure a MateriaLightingContext is provided.
  */
 @Composable
 fun AmbientLight(
     color: Int = 0xFFFFFFFF.toInt(),
     intensity: Float = 1f,
-    visible: Boolean = true,
-    name: String = ""
+    castShadow: Boolean = false
 ) {
-    MateriaNode(
-        factory = { AmbientLight(intToColor(color), intensity) },
-        update = { light ->
-            light.color.copy(intToColor(color))
-            light.intensity = intensity
-            light.visible = visible
-            light.name = name
+    val lightingContext = LocalMateriaLightingContext.current
+    
+    DisposableEffect(color, intensity, castShadow) {
+        val light = AmbientLightImpl().apply {
+            this.color = intToColor(color)
+            this.intensity = intensity
+            this.castShadow = castShadow
         }
-    )
+        lightingContext?.addLight(light)
+        
+        onDispose {
+            lightingContext?.removeLight(light)
+        }
+    }
 }
 
 /**
@@ -331,23 +341,23 @@ fun DirectionalLight(
     color: Int = 0xFFFFFFFF.toInt(),
     intensity: Float = 1f,
     position: Vector3 = Vector3(5f, 10f, 7.5f),
-    target: Vector3 = Vector3.ZERO,
-    castShadow: Boolean = false,
-    visible: Boolean = true,
-    name: String = ""
+    castShadow: Boolean = false
 ) {
-    MateriaNode(
-        factory = { DirectionalLight(intToColor(color), intensity) },
-        update = { light ->
-            light.color.copy(intToColor(color))
-            light.intensity = intensity
-            light.position.copy(position)
-            light.target.position.copy(target)
-            light.castShadow = castShadow
-            light.visible = visible
-            light.name = name
+    val lightingContext = LocalMateriaLightingContext.current
+    
+    DisposableEffect(color, intensity, position, castShadow) {
+        val light = DirectionalLightImpl().apply {
+            this.color = intToColor(color)
+            this.intensity = intensity
+            this.position = position
+            this.castShadow = castShadow
         }
-    )
+        lightingContext?.addLight(light)
+        
+        onDispose {
+            lightingContext?.removeLight(light)
+        }
+    }
 }
 
 /**
@@ -360,23 +370,25 @@ fun PointLight(
     position: Vector3 = Vector3.ZERO,
     distance: Float = 0f,
     decay: Float = 2f,
-    castShadow: Boolean = false,
-    visible: Boolean = true,
-    name: String = ""
+    castShadow: Boolean = false
 ) {
-    MateriaNode(
-        factory = { PointLight(intToColor(color), intensity, distance, decay) },
-        update = { light ->
-            light.color.copy(intToColor(color))
-            light.intensity = intensity
-            light.position.copy(position)
-            light.distance = distance
-            light.decay = decay
-            light.castShadow = castShadow
-            light.visible = visible
-            light.name = name
+    val lightingContext = LocalMateriaLightingContext.current
+    
+    DisposableEffect(color, intensity, position, distance, decay, castShadow) {
+        val light = PointLightImpl().apply {
+            this.color = intToColor(color)
+            this.intensity = intensity
+            this.position = position
+            this.distance = distance
+            this.decay = decay
+            this.castShadow = castShadow
         }
-    )
+        lightingContext?.addLight(light)
+        
+        onDispose {
+            lightingContext?.removeLight(light)
+        }
+    }
 }
 
 /**
@@ -387,31 +399,31 @@ fun SpotLight(
     color: Int = 0xFFFFFFFF.toInt(),
     intensity: Float = 1f,
     position: Vector3 = Vector3.ZERO,
-    target: Vector3 = Vector3.ZERO,
     distance: Float = 0f,
     angle: Float = 0.523599f, // PI/6
     penumbra: Float = 0f,
     decay: Float = 2f,
-    castShadow: Boolean = false,
-    visible: Boolean = true,
-    name: String = ""
+    castShadow: Boolean = false
 ) {
-    MateriaNode(
-        factory = { SpotLight(intToColor(color), intensity, distance, angle, penumbra, decay) },
-        update = { light ->
-            light.color.copy(intToColor(color))
-            light.intensity = intensity
-            light.position.copy(position)
-            light.target.position.copy(target)
-            light.distance = distance
-            light.angle = angle
-            light.penumbra = penumbra
-            light.decay = decay
-            light.castShadow = castShadow
-            light.visible = visible
-            light.name = name
+    val lightingContext = LocalMateriaLightingContext.current
+    
+    DisposableEffect(color, intensity, position, distance, angle, penumbra, decay, castShadow) {
+        val light = SpotLightImpl().apply {
+            this.color = intToColor(color)
+            this.intensity = intensity
+            this.position = position
+            this.distance = distance
+            this.angle = angle
+            this.penumbra = penumbra
+            this.decay = decay
+            this.castShadow = castShadow
         }
-    )
+        lightingContext?.addLight(light)
+        
+        onDispose {
+            lightingContext?.removeLight(light)
+        }
+    }
 }
 
 /**
@@ -422,19 +434,23 @@ fun HemisphereLight(
     skyColor: Int = 0xFF87CEEB.toInt(),
     groundColor: Int = 0xFF362D1A.toInt(),
     intensity: Float = 1f,
-    visible: Boolean = true,
-    name: String = ""
+    castShadow: Boolean = false
 ) {
-    MateriaNode(
-        factory = { HemisphereLight(intToColor(skyColor), intToColor(groundColor), intensity) },
-        update = { light ->
-            light.color.copy(intToColor(skyColor))
-            light.groundColor.copy(intToColor(groundColor))
-            light.intensity = intensity
-            light.visible = visible
-            light.name = name
+    val lightingContext = LocalMateriaLightingContext.current
+    
+    DisposableEffect(skyColor, groundColor, intensity, castShadow) {
+        val light = HemisphereLightImpl().apply {
+            this.color = intToColor(skyColor)
+            this.groundColor = intToColor(groundColor)
+            this.intensity = intensity
+            this.castShadow = castShadow
         }
-    )
+        lightingContext?.addLight(light)
+        
+        onDispose {
+            lightingContext?.removeLight(light)
+        }
+    }
 }
 
 // =============================================================================
@@ -456,7 +472,7 @@ fun PerspectiveCamera(
     name: String = ""
 ) {
     MateriaNode(
-        factory = { PerspectiveCamera(fov, aspect, near, far) },
+        factory = { io.materia.camera.PerspectiveCamera(fov, aspect, near, far) },
         update = { camera ->
             camera.fov = fov
             camera.aspect = aspect
@@ -488,7 +504,7 @@ fun OrthographicCamera(
     name: String = ""
 ) {
     MateriaNode(
-        factory = { OrthographicCamera(left, right, top, bottom, near, far) },
+        factory = { io.materia.camera.OrthographicCamera(left, right, top, bottom, near, far) },
         update = { camera ->
             camera.left = left
             camera.right = right

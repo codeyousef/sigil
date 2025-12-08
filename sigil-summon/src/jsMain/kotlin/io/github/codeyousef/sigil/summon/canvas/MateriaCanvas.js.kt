@@ -11,46 +11,51 @@ import io.github.codeyousef.sigil.schema.GeometryType
 import io.github.codeyousef.sigil.schema.GeometryParams
 import io.github.codeyousef.sigil.schema.LightType
 import io.github.codeyousef.sigil.schema.CameraType
-import io.github.codeyousef.sigil.schema.SigilJson
 import io.github.codeyousef.sigil.schema.SceneSettings
 import io.github.codeyousef.sigil.summon.context.SigilSummonContext
-import io.materia.engine.scene.Scene
-import io.materia.engine.scene.EngineMesh
-import io.materia.engine.scene.Group
-import io.materia.engine.material.BasicMaterial
-import io.materia.engine.material.StandardMaterial
-import io.materia.engine.camera.PerspectiveCamera
-import io.materia.engine.camera.OrthographicCamera
-import io.materia.engine.renderer.WebGPURenderer
-import io.materia.engine.renderer.WebGPURendererConfig
-import io.materia.engine.core.RenderLoop
-import io.materia.engine.core.DisposableContainer
-import io.materia.core.Object3D
+import io.materia.core.scene.Scene
+import io.materia.core.scene.Object3D
+import io.materia.core.scene.Mesh
+import io.materia.core.scene.Group
+import io.materia.core.scene.Background
 import io.materia.core.math.Color
 import io.materia.core.math.Vector3
-import io.materia.geometry.BoxGeometry
-import io.materia.geometry.SphereGeometry
-import io.materia.geometry.PlaneGeometry
-import io.materia.geometry.CylinderGeometry
+import io.materia.material.MeshBasicMaterial
+import io.materia.material.MeshStandardMaterial
+import io.materia.camera.PerspectiveCamera
+import io.materia.camera.OrthographicCamera
+import io.materia.camera.Camera
+import io.materia.geometry.primitives.BoxGeometry
+import io.materia.geometry.primitives.SphereGeometry
+import io.materia.geometry.primitives.PlaneGeometry
+import io.materia.geometry.primitives.CylinderGeometry
 import io.materia.geometry.ConeGeometry
-import io.materia.geometry.TorusGeometry
+import io.materia.geometry.primitives.TorusGeometry
 import io.materia.geometry.CircleGeometry
-import io.materia.geometry.RingGeometry
+import io.materia.geometry.primitives.RingGeometry
 import io.materia.geometry.IcosahedronGeometry
 import io.materia.geometry.OctahedronGeometry
 import io.materia.geometry.TetrahedronGeometry
 import io.materia.geometry.DodecahedronGeometry
 import io.materia.geometry.BufferGeometry
-import io.materia.light.AmbientLight
-import io.materia.light.DirectionalLight
-import io.materia.light.PointLight
-import io.materia.light.SpotLight
-import io.materia.light.HemisphereLight
+import io.materia.lighting.AmbientLightImpl
+import io.materia.lighting.DirectionalLightImpl
+import io.materia.lighting.PointLightImpl
+import io.materia.lighting.SpotLightImpl
+import io.materia.lighting.HemisphereLightImpl
+import io.materia.lighting.Light
+import io.materia.lighting.DefaultLightingSystem
+import io.materia.renderer.webgpu.WebGPURenderer
+import io.materia.renderer.RendererConfig
 import kotlinx.browser.document
 import kotlinx.browser.window
+import kotlinx.coroutines.MainScope
+import kotlinx.coroutines.launch
 import org.w3c.dom.HTMLCanvasElement
 import org.w3c.dom.HTMLDivElement
 import org.w3c.dom.HTMLScriptElement
+
+private val scope = MainScope()
 
 /**
  * JS (Client-side) implementation of MateriaCanvas for Summon.
@@ -129,18 +134,20 @@ private fun performHydration(canvasId: String, fallbackScene: SigilScene) {
     canvas.width = rect.width.toInt()
     canvas.height = rect.height.toInt()
 
-    // Initialize Materia
-    try {
-        val hydrator = SigilHydrator(canvas, scene)
-        hydrator.initialize()
-        hydrator.startRenderLoop()
+    // Initialize Materia (async)
+    scope.launch {
+        try {
+            val hydrator = SigilHydrator(canvas, scene)
+            hydrator.initialize()
+            hydrator.startRenderLoop()
 
-        // Store reference for cleanup
-        js("window")["sigilHydrators"] = js("window.sigilHydrators || {}")
-        js("window.sigilHydrators")["canvasId"] = hydrator
+            // Store reference for cleanup
+            js("window")["sigilHydrators"] = js("window.sigilHydrators || {}")
+            js("window.sigilHydrators")["canvasId"] = hydrator
 
-    } catch (e: Exception) {
-        console.error("Sigil: Failed to hydrate scene: ${e.message}")
+        } catch (e: Exception) {
+            console.error("Sigil: Failed to hydrate scene: ${e.message}")
+        }
     }
 }
 
@@ -152,13 +159,14 @@ class SigilHydrator(
     private val sceneData: SigilScene
 ) {
     private val materiaScene = Scene()
+    private val lightingSystem = DefaultLightingSystem()
     private var renderer: WebGPURenderer? = null
-    private var renderLoop: RenderLoop? = null
+    private var animationFrameId: Int = 0
+    private var running = false
     private var camera: PerspectiveCamera? = null
-    private val disposables = DisposableContainer()
     private val nodeMap = mutableMapOf<String, Object3D>()
 
-    fun initialize() {
+    suspend fun initialize() {
         // Configure scene from settings
         applySceneSettings(sceneData.settings)
 
@@ -183,101 +191,112 @@ class SigilHydrator(
         }
 
         // Create renderer
-        val config = WebGPURendererConfig(
-            depthTest = true,
-            clearColor = intToColor(sceneData.settings.backgroundColor),
-            antialias = 4
-        )
-
-        renderer = WebGPURenderer(config).also { r ->
-            val surface = CanvasRenderSurface(canvas)
-            r.initialize(surface)
-            r.setSize(canvas.width, canvas.height)
-            disposables.track(r)
+        val r = WebGPURenderer(canvas)
+        val config = RendererConfig()
+        val result = r.initialize(config)
+        
+        when (result) {
+            is io.materia.core.Result.Success -> {
+                renderer = r
+                r.resize(canvas.width, canvas.height)
+            }
+            is io.materia.core.Result.Error -> {
+                console.error("Sigil: Failed to initialize WebGPU renderer: ${result.message}")
+                return
+            }
         }
 
         // Handle resize
-        window.addEventListener("resize") {
+        window.onresize = {
             val rect = canvas.parentElement?.getBoundingClientRect()
             if (rect != null) {
                 canvas.width = rect.width.toInt()
                 canvas.height = rect.height.toInt()
-                renderer?.setSize(canvas.width, canvas.height)
+                renderer?.resize(canvas.width, canvas.height)
                 camera?.let { c ->
                     c.aspect = canvas.width.toFloat() / canvas.height.toFloat()
                     c.updateProjectionMatrix()
                 }
             }
+            Unit
         }
     }
 
     fun startRenderLoop() {
         val cam = camera ?: return
         val r = renderer ?: return
-
-        renderLoop = RenderLoop { deltaTime ->
-            materiaScene.traverse { obj ->
-                obj.updateMatrixWorld()
-            }
+        
+        running = true
+        
+        fun renderFrame() {
+            if (!running) return
+            
+            materiaScene.updateMatrixWorld(true)
+            cam.updateMatrixWorld()
+            cam.updateProjectionMatrix()
             r.render(materiaScene, cam)
+            
+            animationFrameId = window.requestAnimationFrame { renderFrame() }
         }
-        renderLoop?.start()
+        
+        renderFrame()
     }
 
     fun stop() {
-        renderLoop?.stop()
-        renderLoop = null
+        running = false
+        if (animationFrameId != 0) {
+            window.cancelAnimationFrame(animationFrameId)
+            animationFrameId = 0
+        }
     }
 
     fun dispose() {
         stop()
         nodeMap.clear()
-        disposables.dispose()
+        renderer?.dispose()
+        renderer = null
     }
 
     private fun applySceneSettings(settings: SceneSettings) {
-        materiaScene.background = intToColor(settings.backgroundColor)
-
-        if (settings.fogEnabled) {
-            materiaScene.fog = io.materia.engine.scene.Fog(
-                intToColor(settings.fogColor),
-                settings.fogNear,
-                settings.fogFar
-            )
-        }
+        materiaScene.background = Background.Color(intToColor(settings.backgroundColor))
     }
 
     private fun createMateriaNode(nodeData: SigilNodeData): Object3D? {
         return when (nodeData) {
             is MeshData -> createMesh(nodeData)
             is GroupData -> createGroup(nodeData)
-            is LightData -> createLight(nodeData)
-            is CameraData -> createCamera(nodeData)
+            is LightData -> {
+                // Lights in Materia 0.2.0.0 don't extend Object3D
+                // They're managed via LightingSystem
+                createLight(nodeData)
+                null
+            }
+            is CameraData -> {
+                // Cameras are handled separately
+                null
+            }
         }
     }
 
-    private fun createMesh(data: MeshData): EngineMesh {
+    private fun createMesh(data: MeshData): Mesh {
         val geometry = createGeometry(data.geometryType, data.geometryParams)
         val material = if (data.metalness > 0f || data.roughness < 1f) {
-            StandardMaterial(
+            MeshStandardMaterial(
                 color = intToColor(data.materialColor),
                 metalness = data.metalness,
                 roughness = data.roughness
             )
         } else {
-            BasicMaterial(color = intToColor(data.materialColor))
+            MeshBasicMaterial().apply {
+                color = intToColor(data.materialColor)
+            }
         }
 
-        disposables.track(geometry)
-        disposables.track(material)
-
-        return EngineMesh(geometry, material).apply {
+        return Mesh(geometry, material).apply {
             position.set(data.position[0], data.position[1], data.position[2])
             rotation.set(data.rotation[0], data.rotation[1], data.rotation[2])
             scale.set(data.scale[0], data.scale[1], data.scale[2])
             visible = data.visible
-            castShadow = data.castShadow
-            receiveShadow = data.receiveShadow
             name = data.name ?: ""
         }
     }
@@ -302,77 +321,54 @@ class SigilHydrator(
         return group
     }
 
-    private fun createLight(data: LightData): io.materia.light.Light {
-        val light: io.materia.light.Light = when (data.lightType) {
-            LightType.AMBIENT -> AmbientLight(
+    private fun createLight(data: LightData) {
+        // Create the light using Impl classes
+        val light: Light = when (data.lightType) {
+            LightType.AMBIENT -> AmbientLightImpl(
                 intToColor(data.color),
                 data.intensity
             )
-            LightType.DIRECTIONAL -> DirectionalLight(
-                intToColor(data.color),
-                data.intensity
-            ).apply {
-                target.position.set(data.target[0], data.target[1], data.target[2])
-                castShadow = data.castShadow
-            }
-            LightType.POINT -> PointLight(
+            LightType.DIRECTIONAL -> DirectionalLightImpl(
                 intToColor(data.color),
                 data.intensity,
-                data.distance,
-                data.decay
-            ).apply {
-                castShadow = data.castShadow
-            }
-            LightType.SPOT -> SpotLight(
+                Vector3(
+                    data.target[0] - data.position[0],
+                    data.target[1] - data.position[1],
+                    data.target[2] - data.position[2]
+                ).normalize(),
+                Vector3(data.position[0], data.position[1], data.position[2])
+            )
+            LightType.POINT -> PointLightImpl(
                 intToColor(data.color),
                 data.intensity,
-                data.distance,
+                Vector3(data.position[0], data.position[1], data.position[2]),
+                2f, // decay
+                data.distance
+            )
+            LightType.SPOT -> SpotLightImpl(
+                intToColor(data.color),
+                data.intensity,
+                Vector3(data.position[0], data.position[1], data.position[2]),
+                Vector3(
+                    data.target[0] - data.position[0],
+                    data.target[1] - data.position[1],
+                    data.target[2] - data.position[2]
+                ).normalize(),
                 data.angle,
                 data.penumbra,
-                data.decay
-            ).apply {
-                target.position.set(data.target[0], data.target[1], data.target[2])
-                castShadow = data.castShadow
-            }
-            LightType.HEMISPHERE -> HemisphereLight(
+                data.decay,
+                data.distance
+            )
+            LightType.HEMISPHERE -> HemisphereLightImpl(
                 intToColor(data.color),
-                Color(0.2f, 0.2f, 0.2f), // Default ground color
-                data.intensity
+                Color(0.2f, 0.2f, 0.2f),
+                data.intensity,
+                Vector3(data.position[0], data.position[1], data.position[2])
             )
         }
 
-        light.position.set(data.position[0], data.position[1], data.position[2])
-        light.visible = data.visible
-        light.name = data.name ?: ""
-
-        return light
-    }
-
-    private fun createCamera(data: CameraData): io.materia.engine.camera.Camera {
-        return when (data.cameraType) {
-            CameraType.PERSPECTIVE -> PerspectiveCamera(
-                fov = data.fov,
-                aspect = data.aspect,
-                near = data.near,
-                far = data.far
-            ).apply {
-                position.set(data.position[0], data.position[1], data.position[2])
-                data.lookAt?.let { lookAt(Vector3(it[0], it[1], it[2])) }
-                name = data.name ?: ""
-            }
-            CameraType.ORTHOGRAPHIC -> OrthographicCamera(
-                left = data.orthoBounds[0],
-                right = data.orthoBounds[1],
-                top = data.orthoBounds[2],
-                bottom = data.orthoBounds[3],
-                near = data.near,
-                far = data.far
-            ).apply {
-                position.set(data.position[0], data.position[1], data.position[2])
-                data.lookAt?.let { lookAt(Vector3(it[0], it[1], it[2])) }
-                name = data.name ?: ""
-            }
-        }
+        // Add light to lighting system
+        lightingSystem.addLight(light)
     }
 
     private fun createGeometry(type: GeometryType, params: GeometryParams): BufferGeometry {
@@ -454,11 +450,6 @@ class SigilHydrator(
 }
 
 /**
- * External declaration for canvas render surface.
- */
-external class CanvasRenderSurface(canvas: HTMLCanvasElement)
-
-/**
  * Register the global SigilHydrator for external access.
  */
 @JsExport
@@ -478,13 +469,10 @@ object SigilHydratorGlobal {
         canvas.width = rect.width.toInt()
         canvas.height = rect.height.toInt()
 
-        val hydrator = SigilHydrator(canvas, scene)
-        hydrator.initialize()
-        hydrator.startRenderLoop()
+        scope.launch {
+            val hydrator = SigilHydrator(canvas, scene)
+            hydrator.initialize()
+            hydrator.startRenderLoop()
+        }
     }
-}
-
-// Make hydrator globally accessible
-private fun initGlobalHydrator() {
-    js("window.SigilHydrator = SigilHydratorGlobal")
 }

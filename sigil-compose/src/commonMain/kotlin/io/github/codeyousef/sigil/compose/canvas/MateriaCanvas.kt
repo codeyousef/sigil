@@ -1,8 +1,8 @@
 package io.github.codeyousef.sigil.compose.canvas
 
 import androidx.compose.runtime.Composable
-import io.materia.engine.scene.Scene
-import io.materia.engine.camera.PerspectiveCamera
+import io.materia.core.scene.Scene
+import io.materia.camera.PerspectiveCamera
 
 /**
  * Entry point for rendering Materia 3D scenes within Compose.
@@ -15,7 +15,7 @@ import io.materia.engine.camera.PerspectiveCamera
  * - Resource cleanup on disposal
  *
  * Platform implementations:
- * - Desktop (JVM): Uses AWT Canvas with LWJGL/Vulkan
+ * - Desktop (JVM): Uses AWT Canvas with Vulkan
  * - Web (JS): Uses HTML Canvas with WebGPU
  * - Android: Uses SurfaceView/TextureView
  * - iOS: Uses UIView with Metal (via MoltenVK)

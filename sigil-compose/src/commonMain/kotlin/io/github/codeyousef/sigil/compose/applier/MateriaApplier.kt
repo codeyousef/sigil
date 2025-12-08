@@ -110,7 +110,7 @@ class MateriaApplier(
      * memory leaks. We clear all children from the root scene and
      * dispose their resources.
      */
-    override fun onClear() {
+    override fun clear() {
         // Clear all children from the root, disposing resources
         val root = nodeStack.first()
         root.clear()
@@ -124,7 +124,7 @@ class MateriaApplier(
      * Called at the start of applying changes.
      * We could use this for batching or deferring GPU operations.
      */
-    fun onBeginChanges() {
+    override fun onBeginChanges() {
         // Could implement change batching here if needed
     }
 
@@ -132,7 +132,7 @@ class MateriaApplier(
      * Called at the end of applying changes.
      * We could use this to flush batched operations.
      */
-    fun onEndChanges() {
+    override fun onEndChanges() {
         // Could flush batched changes here if needed
     }
 }

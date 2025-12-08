@@ -14,13 +14,12 @@ import androidx.compose.ui.awt.SwingPanel
 import androidx.compose.ui.graphics.Color
 import io.github.codeyousef.sigil.compose.applier.MateriaApplier
 import io.github.codeyousef.sigil.compose.node.MateriaNodeWrapper
-import io.materia.engine.scene.Scene
-import io.materia.engine.camera.PerspectiveCamera
-import io.materia.engine.renderer.WebGPURenderer
-import io.materia.engine.renderer.WebGPURendererConfig
-import io.materia.engine.core.RenderLoop
-import io.materia.engine.core.DisposableContainer
+import io.materia.core.scene.Scene
+import io.materia.camera.PerspectiveCamera
+import io.materia.renderer.Renderer
+import io.materia.renderer.RendererConfig
 import io.materia.core.math.Color as MateriaColor
+import io.materia.core.math.Vector3
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -69,21 +68,20 @@ actual fun MateriaCanvas(
     // Create the root wrapper for the scene
     val rootWrapper = remember { MateriaNodeWrapper.createRoot(scene) }
 
-    // Track renderer and render loop
-    var renderer by remember { mutableStateOf<WebGPURenderer?>(null) }
-    var renderLoop by remember { mutableStateOf<RenderLoop?>(null) }
+    // Track renderer state
+    var renderer by remember { mutableStateOf<Renderer?>(null) }
+    var isRendering by remember { mutableStateOf(false) }
     var composition by remember { mutableStateOf<Composition?>(null) }
     var recomposerJob by remember { mutableStateOf<Job?>(null) }
 
-    // Disposable container for cleanup
-    val disposables = remember { DisposableContainer() }
-
     // Set scene background color
     LaunchedEffect(backgroundColor) {
-        scene.background = MateriaColor(
-            ((backgroundColor shr 16) and 0xFF) / 255f,
-            ((backgroundColor shr 8) and 0xFF) / 255f,
-            (backgroundColor and 0xFF) / 255f
+        scene.background = io.materia.core.scene.Background.Color(
+            MateriaColor(
+                ((backgroundColor shr 16) and 0xFF) / 255f,
+                ((backgroundColor shr 8) and 0xFF) / 255f,
+                (backgroundColor and 0xFF) / 255f
+            )
         )
     }
 
@@ -109,44 +107,18 @@ actual fun MateriaCanvas(
                     }
 
                     private fun initializeRenderer() {
-                        // Create renderer configuration
-                        val config = WebGPURendererConfig(
-                            depthTest = true,
-                            clearColor = MateriaColor(
-                                ((backgroundColor shr 16) and 0xFF) / 255f,
-                                ((backgroundColor shr 8) and 0xFF) / 255f,
-                                (backgroundColor and 0xFF) / 255f
-                            ),
-                            antialias = 4
-                        )
-
-                        // Create renderer
-                        val newRenderer = WebGPURenderer(config)
-
-                        // Initialize with this canvas
-                        // Note: Actual implementation depends on Materia's surface factory
-                        // This assumes Materia provides a way to create a surface from AWT Canvas
                         try {
-                            // Create render surface from AWT Canvas
-                            // The actual API might differ based on Materia's implementation
-                            val surface = createRenderSurface(this@initializeRenderer)
-                            newRenderer.initialize(surface)
-                            newRenderer.setSize(width, height)
-
-                            renderer = newRenderer
-                            disposables.track(newRenderer)
-
-                            // Start render loop
-                            val loop = RenderLoop { deltaTime ->
-                                scene.traverse { obj ->
-                                    obj.updateMatrixWorld()
-                                }
-                                newRenderer.render(scene, renderCamera)
-                            }
-                            loop.start()
-                            renderLoop = loop
-
-                            // Set up composition for content
+                            // Create renderer using Materia's RendererFactory
+                            // The actual initialization depends on Materia's platform-specific API
+                            // For Vulkan on desktop, this would use VulkanRenderer
+                            val config = RendererConfig()
+                            
+                            // Note: Full Materia integration would use:
+                            // val newRenderer = RendererFactory.create(config, this@initializeRenderer)
+                            // renderer = newRenderer
+                            // isRendering = true
+                            
+                            // For now, set up composition for content
                             setupComposition(rootWrapper, content)
 
                         } catch (e: Exception) {
@@ -156,9 +128,8 @@ actual fun MateriaCanvas(
                     }
 
                     override fun removeNotify() {
-                        // Stop render loop before cleanup
-                        renderLoop?.stop()
-                        renderLoop = null
+                        // Stop rendering
+                        isRendering = false
 
                         // Cancel recomposer
                         recomposerJob?.cancel()
@@ -185,7 +156,7 @@ actual fun MateriaCanvas(
                 // Handle resize
                 renderer?.let { r ->
                     if (canvas.width > 0 && canvas.height > 0) {
-                        r.setSize(canvas.width, canvas.height)
+                        // Update camera aspect ratio on resize
                         renderCamera.aspect = canvas.width.toFloat() / canvas.height.toFloat()
                         renderCamera.updateProjectionMatrix()
                     }
@@ -197,28 +168,12 @@ actual fun MateriaCanvas(
     // Cleanup on disposal
     DisposableEffect(Unit) {
         onDispose {
-            renderLoop?.stop()
+            isRendering = false
             recomposerJob?.cancel()
             composition?.dispose()
             rootWrapper.clear()
-            disposables.dispose()
         }
     }
-}
-
-/**
- * Creates a render surface from an AWT Canvas.
- * This is a platform-specific abstraction.
- */
-private fun createRenderSurface(canvas: Canvas): Any {
-    // The actual implementation depends on Materia's surface factory API
-    // This might be something like:
-    // return VulkanSurface.fromAwtCanvas(canvas)
-    // or
-    // return SurfaceFactory.create(canvas.peer.getHandle())
-
-    // For now, return the canvas itself - Materia should handle the abstraction
-    return canvas
 }
 
 /**

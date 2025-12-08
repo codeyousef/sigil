@@ -1,18 +1,17 @@
 package io.github.codeyousef.sigil.compose.node
 
-import io.materia.engine.scene.EngineMesh
-import io.materia.engine.scene.Scene
+import io.materia.core.scene.Mesh
+import io.materia.core.scene.Scene
 import io.materia.core.math.Vector3
-import io.materia.core.Object3D
-import io.materia.engine.core.Disposable
-import io.materia.engine.core.DisposableContainer
-import io.materia.light.Light
-import io.materia.light.AmbientLight
-import io.materia.light.DirectionalLight
-import io.materia.light.PointLight
-import io.materia.light.SpotLight
-import io.materia.engine.camera.PerspectiveCamera
-import io.materia.engine.camera.OrthographicCamera
+import io.materia.core.scene.Object3D
+import io.materia.core.scene.Group
+import io.materia.lighting.Light
+import io.materia.lighting.AmbientLight
+import io.materia.lighting.DirectionalLight
+import io.materia.lighting.PointLight
+import io.materia.lighting.SpotLight
+import io.materia.camera.PerspectiveCamera
+import io.materia.camera.OrthographicCamera
 
 /**
  * Wrapper class for Materia Object3D nodes to manage parent-child relationships
@@ -26,9 +25,9 @@ import io.materia.engine.camera.OrthographicCamera
  */
 class MateriaNodeWrapper(
     val internalNode: Object3D
-) : Disposable {
+) {
     private val children = mutableListOf<MateriaNodeWrapper>()
-    private val disposables = DisposableContainer()
+    private var _isDisposed = false
 
     /**
      * Parent wrapper in the scene graph hierarchy
@@ -66,11 +65,6 @@ class MateriaNodeWrapper(
 
         // Add the internal Materia node to the scene graph
         internalNode.add(instance.internalNode)
-
-        // Track for disposal
-        if (instance.internalNode is Disposable) {
-            disposables.track(instance.internalNode as Disposable)
-        }
     }
 
     /**
@@ -88,11 +82,6 @@ class MateriaNodeWrapper(
             // Remove from Materia scene graph
             internalNode.remove(child.internalNode)
             child.parent = null
-
-            // Untrack from disposables
-            if (child.internalNode is Disposable) {
-                disposables.untrack(child.internalNode as Disposable)
-            }
         }
 
         // Remove from our tracking list
@@ -202,27 +191,22 @@ class MateriaNodeWrapper(
         internalNode.name = name
     }
 
-    override val isDisposed: Boolean
-        get() = disposables.isDisposed
+    val isDisposed: Boolean
+        get() = _isDisposed
 
     /**
      * Dispose this wrapper and all its resources.
      * This recursively disposes all children first.
      */
-    override fun dispose() {
+    fun dispose() {
+        if (_isDisposed) return
+        _isDisposed = true
+
         // Dispose children first (bottom-up)
         for (child in children) {
             child.dispose()
         }
         children.clear()
-
-        // Dispose tracked resources
-        disposables.dispose()
-
-        // Dispose the internal node if it's disposable
-        if (internalNode is Disposable) {
-            (internalNode as Disposable).dispose()
-        }
 
         // Remove from parent
         parent?.let { p ->
@@ -249,7 +233,7 @@ class MateriaNodeWrapper(
          * Create a wrapper for a Group node.
          */
         fun createGroup(): MateriaNodeWrapper {
-            return MateriaNodeWrapper(io.materia.engine.scene.Group())
+            return MateriaNodeWrapper(Group())
         }
     }
 }

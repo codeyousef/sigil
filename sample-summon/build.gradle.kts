@@ -14,6 +14,11 @@ kotlin {
                     enabled.set(true)
                 }
             }
+            testTask {
+                useKarma {
+                    useChromeHeadless()
+                }
+            }
         }
     }
 
@@ -39,6 +44,7 @@ kotlin {
         jsMain {
             dependencies {
                 implementation(libs.materia.engine)
+                implementation(libs.kotlinx.coroutines.core)
             }
         }
     }
