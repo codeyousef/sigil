@@ -1,6 +1,6 @@
 package io.github.codeyousef.sigil.sample.summon
 
-import code.yousef.summon.annotation.Composable
+import codes.yousef.summon.annotation.Composable
 import io.github.codeyousef.sigil.schema.GeometrySpec
 import io.github.codeyousef.sigil.schema.MaterialSpec
 import io.github.codeyousef.sigil.schema.SigilScene

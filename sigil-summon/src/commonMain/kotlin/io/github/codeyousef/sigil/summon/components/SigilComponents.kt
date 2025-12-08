@@ -1,7 +1,7 @@
 package io.github.codeyousef.sigil.summon.components
 
-import code.yousef.summon.annotation.Composable
-import code.yousef.summon.modifier.Modifier
+import codes.yousef.summon.annotation.Composable
+import codes.yousef.summon.modifier.Modifier
 import io.github.codeyousef.sigil.schema.MeshData
 import io.github.codeyousef.sigil.schema.GroupData
 import io.github.codeyousef.sigil.schema.LightData

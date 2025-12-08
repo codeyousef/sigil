@@ -1,6 +1,6 @@
 package io.github.codeyousef.sigil.summon.canvas
 
-import code.yousef.summon.annotation.Composable
+import codes.yousef.summon.annotation.Composable
 import io.github.codeyousef.sigil.schema.SigilScene
 import io.github.codeyousef.sigil.schema.SceneSettings
 

@@ -6,8 +6,18 @@ plugins {
 kotlin {
     jvm()
     js(IR) {
-        browser()
-        nodejs()
+        browser {
+            testTask {
+                useKarma {
+                    useChromeHeadless()
+                }
+            }
+        }
+        nodejs {
+            testTask {
+                useMocha()
+            }
+        }
     }
 
     sourceSets {

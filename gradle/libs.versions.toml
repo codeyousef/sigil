@@ -1,7 +1,7 @@
 [versions]
 kotlin = "2.1.20"
-materia = "0.1.0-alpha01"
-summon = "0.5.2.1"
+materia = "0.2.0.0"
+summon = "0.5.8.0"
 compose = "1.7.3"
 serialization = "1.7.3"
 coroutines = "1.9.0"
@@ -19,10 +19,13 @@ kotlinx-serialization-json = { group = "org.jetbrains.kotlinx", name = "kotlinx-
 kotlinx-coroutines-core = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-core", version.ref = "coroutines" }
 
 # Materia 3D Engine
-materia-engine = { group = "codes.yousef", name = "materia-engine", version.ref = "materia" }
+materia-engine = { group = "codes.yousef", name = "materia", version.ref = "materia" }
 
 # Summon Framework
 summon = { group = "codes.yousef", name = "summon", version.ref = "summon" }
+summon-core = { group = "codes.yousef", name = "summon-core", version.ref = "summon" }
+summon-jvm = { group = "codes.yousef", name = "summon-jvm", version.ref = "summon" }
+summon-js = { group = "codes.yousef", name = "summon-js", version.ref = "summon" }
 
 # Compose Runtime
 compose-runtime = { group = "org.jetbrains.compose.runtime", name = "runtime", version.ref = "compose" }

@@ -26,5 +26,28 @@ replay_pid*
 # Kotlin Gradle plugin data, see https://kotlinlang.org/docs/whatsnew20.html#new-directory-for-kotlin-data-in-gradle-projects
 .kotlin/
 
+# Gradle
+.gradle/
+build/
+!gradle-wrapper.jar
+
+# IDE
+.idea/
+*.iml
+*.ipr
+*.iws
+.project
+.classpath
+.settings/
+.vscode/
+
+# Kotlin/JS
+kotlin-js-store/
+node_modules/
+
+# Local configuration
+local.properties
+
+# Private docs
 /docs/private
 .github/copilot-instructions.md

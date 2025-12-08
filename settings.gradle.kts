@@ -12,6 +12,32 @@ dependencyResolutionManagement {
         mavenLocal()
         google()
         mavenCentral()
+        // Node.js distribution for Kotlin/JS tests
+        ivy("https://nodejs.org/dist/") {
+            name = "nodejs-dist"
+            patternLayout {
+                artifact("v[revision]/[artifact](-v[revision]-[classifier]).[ext]")
+            }
+            metadataSources {
+                artifact()
+            }
+            content {
+                includeModule("org.nodejs", "node")
+            }
+        }
+        // Yarn distribution for Kotlin/JS package management
+        ivy("https://github.com/yarnpkg/yarn/releases/download/") {
+            name = "yarn-dist"
+            patternLayout {
+                artifact("v[revision]/[artifact](-v[revision]).[ext]")
+            }
+            metadataSources {
+                artifact()
+            }
+            content {
+                includeModule("com.yarnpkg", "yarn")
+            }
+        }
     }
 }
 

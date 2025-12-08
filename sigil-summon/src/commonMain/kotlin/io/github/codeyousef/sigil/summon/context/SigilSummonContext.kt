@@ -102,7 +102,8 @@ class SigilSummonContext private constructor(
         /**
          * Thread-local context for the current composition.
          */
-        private val currentContext = ThreadLocalContext()
+        @PublishedApi
+        internal val currentContext = ThreadLocalContext()
 
         /**
          * Get the current context, throwing if none is active.

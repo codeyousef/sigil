@@ -22,7 +22,7 @@ import kotlinx.html.script
 import kotlinx.html.style
 import kotlinx.html.title
 import kotlinx.html.unsafe
-import code.yousef.summon.runtime.PlatformRendererProvider
+import codes.yousef.summon.core.PlatformRendererProvider
 import io.github.codeyousef.sigil.summon.MateriaCanvas
 
 fun main() {
