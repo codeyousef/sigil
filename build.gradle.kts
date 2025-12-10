@@ -1,5 +1,7 @@
 import java.util.Properties
 import java.security.MessageDigest
+import org.gradle.api.publish.maven.MavenPublication
+import org.gradle.api.publish.PublishingExtension
 
 plugins {
     alias(libs.plugins.kotlin.multiplatform) apply false
@@ -30,6 +32,40 @@ subprojects {
     version = rootProject.version
 
     apply(plugin = "maven-publish")
+
+    val javadocJar by tasks.registering(Jar::class) {
+        archiveClassifier.set("javadoc")
+        from(rootProject.file("README.md"))
+    }
+
+    extensions.configure<PublishingExtension> {
+        publications.withType<MavenPublication> {
+            artifact(javadocJar)
+            pom {
+                name.set(project.name)
+                description.set("Sigil - A Kotlin Multiplatform 3D Library")
+                url.set("https://github.com/codeyousef/sigil")
+                licenses {
+                    license {
+                        name.set("MIT")
+                        url.set("https://opensource.org/licenses/MIT")
+                    }
+                }
+                developers {
+                    developer {
+                        id.set("codeyousef")
+                        name.set("Yousef")
+                        email.set("code.yousef@gmail.com")
+                    }
+                }
+                scm {
+                    url.set("https://github.com/codeyousef/sigil")
+                    connection.set("scm:git:git://github.com/codeyousef/sigil.git")
+                    developerConnection.set("scm:git:ssh://github.com/codeyousef/sigil.git")
+                }
+            }
+        }
+    }
 
     // Apply common configuration for all subprojects
     afterEvaluate {
