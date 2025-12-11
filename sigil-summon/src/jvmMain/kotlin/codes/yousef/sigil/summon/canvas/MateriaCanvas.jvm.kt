@@ -1,7 +1,6 @@
 package codes.yousef.sigil.summon.canvas
 
 import codes.yousef.summon.annotation.Composable
-import codes.yousef.summon.components.foundation.RawHtml
 import codes.yousef.sigil.schema.SigilJson
 import codes.yousef.sigil.schema.SigilScene
 import codes.yousef.sigil.schema.SceneSettings
@@ -51,8 +50,10 @@ actual fun MateriaCanvas(
     // Escape JSON for embedding in HTML script tag
     val escapedJson = escapeJsonForHtml(sceneJson)
 
-    // Build the HTML output
-    val html = buildString {
+    // Build and return the HTML output
+    // The caller is responsible for injecting this into the page
+    // (e.g., using kotlinx.html's `unsafe { raw(html) }`)
+    return buildString {
         // Container div for the canvas
         append("""<div id="$id-container" style="width: $width; height: $height; position: relative;">""")
 
@@ -67,11 +68,6 @@ actual fun MateriaCanvas(
 
         append("</div>")
     }
-    
-    // Use Summon's RawHtml to actually render the HTML into the component tree
-    RawHtml(html)
-    
-    return html
 }
 
 /**
