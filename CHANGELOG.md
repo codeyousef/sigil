@@ -2,6 +2,19 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.2.4.0] - 2025-12-11
+
+### Changed
+
+#### Ktor 3.x Compatibility
+- **Upgraded Ktor from 2.3.12 to 3.0.3** for compatibility with modern Ktor applications
+- Updated `SigilKtorIntegration` to use Ktor 3.x API:
+  - Changed from `ApplicationCall` receiver to `RoutingContext` receiver
+  - Routes now use `RoutingContext.call` instead of implicit `call`
+- No breaking changes for library users - `sigilStaticAssets()` API unchanged
+
+---
+
 ## [0.2.3.0] - 2025-12-11
 
 ### Fixed

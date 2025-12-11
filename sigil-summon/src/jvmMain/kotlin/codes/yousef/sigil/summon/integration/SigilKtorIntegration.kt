@@ -1,13 +1,14 @@
 package codes.yousef.sigil.summon.integration
 
 import io.ktor.http.*
-import io.ktor.server.application.*
 import io.ktor.server.response.*
 import io.ktor.server.routing.*
 
 /**
  * Ktor integration for Sigil static assets.
  * Provides functions to serve Sigil's hydration JavaScript from the library JAR.
+ * 
+ * Compatible with Ktor 3.x.
  */
 object SigilKtorIntegration {
 
@@ -28,10 +29,10 @@ object SigilKtorIntegration {
      */
     fun Route.sigilStaticAssets() {
         get("/sigil-hydration.js") {
-            call.respondSigilAsset(SigilAssets.Assets.HYDRATION_JS)
+            respondSigilAsset(SigilAssets.Assets.HYDRATION_JS)
         }
         get("/sigil-hydration.js.map") {
-            call.respondSigilAsset(SigilAssets.Assets.HYDRATION_JS_MAP)
+            respondSigilAsset(SigilAssets.Assets.HYDRATION_JS_MAP)
         }
     }
 
@@ -39,12 +40,12 @@ object SigilKtorIntegration {
      * Loads and responds with a Sigil asset from the library JAR resources.
      * Supports gzip compression and caching for optimal performance.
      */
-    suspend fun ApplicationCall.respondSigilAsset(name: String) {
-        val acceptsGzip = request.headers[HttpHeaders.AcceptEncoding]?.contains("gzip") == true
+    suspend fun RoutingContext.respondSigilAsset(name: String) {
+        val acceptsGzip = call.request.headers[HttpHeaders.AcceptEncoding]?.contains("gzip") == true
         val result = SigilAssets.loadAsset(name, acceptsGzip)
 
         if (result == null) {
-            respondText(
+            call.respondText(
                 """{"status":"not-found","asset":"$name"}""",
                 ContentType.Application.Json,
                 HttpStatusCode.NotFound
@@ -53,14 +54,14 @@ object SigilKtorIntegration {
         }
 
         // Add cache headers - assets are immutable, cache for 1 year
-        response.headers.append(HttpHeaders.CacheControl, "public, max-age=31536000, immutable")
-        response.headers.append(HttpHeaders.Vary, "Accept-Encoding")
+        call.response.headers.append(HttpHeaders.CacheControl, "public, max-age=31536000, immutable")
+        call.response.headers.append(HttpHeaders.Vary, "Accept-Encoding")
 
         if (result.isCompressed) {
-            response.headers.append(HttpHeaders.ContentEncoding, "gzip")
+            call.response.headers.append(HttpHeaders.ContentEncoding, "gzip")
         }
 
-        respondBytes(result.bytes, ContentType.parse(result.contentType))
+        call.respondBytes(result.bytes, ContentType.parse(result.contentType))
     }
 }
 
