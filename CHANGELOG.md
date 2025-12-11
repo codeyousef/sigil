@@ -2,6 +2,28 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.2.2.0] - 2025-12-11
+
+### Added
+
+#### Ktor Integration for Static Assets
+- **`SigilKtorIntegration`**: Ktor route extension for serving Sigil hydration assets
+  - `Route.sigilStaticAssets()` - Serves `/sigil-hydration.js` from library JAR
+  - `ApplicationCall.respondSigilAsset()` - Low-level asset serving function
+  - Automatic gzip compression for compatible clients
+  - Cache headers for optimal performance (1 year immutable)
+  - Zero-configuration: JavaScript embedded in JAR, no external files needed
+- **Static hydration script**: `sigil-hydration.js` for client-side effect initialization
+  - Detects and logs Sigil effect canvases with `data-sigil-effects` attribute
+  - Exports `window.Sigil` object for external access
+
+### Technical Details
+- New `SigilKtorIntegration.kt` in `sigil-summon` jvmMain
+- Static resource at `static/sigil-hydration.js` embedded in JVM JAR
+- Ktor server-core as compileOnly dependency
+
+---
+
 ## [0.2.1.0] - 2025-12-11
 
 ### Added

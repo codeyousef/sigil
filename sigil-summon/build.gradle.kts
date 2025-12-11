@@ -39,6 +39,8 @@ kotlin {
         jvmMain {
             dependencies {
                 // JVM-specific Summon dependencies for SSR
+                // Ktor integration dependencies
+                compileOnly(libs.ktor.server.core)
             }
         }
 
@@ -49,3 +51,6 @@ kotlin {
         }
     }
 }
+
+// TODO: In the future, add task to copy compiled JS into JVM resources
+// For now, we use a static placeholder in src/jvmMain/resources/static/sigil-hydration.js
