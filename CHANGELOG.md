@@ -2,6 +2,23 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.2.5.0] - 2025-12-11
+
+### Fixed
+
+#### SSR Rendering with RawHtml
+- **Fixed `MateriaCanvas.jvm.kt`**: Canvas HTML was being returned but not emitted into the Summon component tree
+  - Added `RawHtml(html)` call to properly inject HTML into the render output
+  - Previously, the returned HTML string was being discarded during SSR
+- **Verified `SigilEffectCanvas.jvm.kt`**: Already had the correct `RawHtml` implementation
+
+### Technical Details
+- Summon's SSR composables work by calling renderer methods, not by returning strings
+- `RawHtml` is Summon's mechanism for injecting raw HTML into the rendered output
+- Without calling `RawHtml`, generated canvas HTML was never added to the page
+
+---
+
 ## [0.2.4.0] - 2025-12-11
 
 ### Changed
