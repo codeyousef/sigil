@@ -6,6 +6,10 @@ import kotlinx.serialization.Serializable
 /**
  * Data class representing a custom shader effect.
  * Contains all information needed to create and render a fullscreen shader pass.
+ * 
+ * Supports both WebGPU (WGSL) and WebGL (GLSL) shaders. If both are provided,
+ * the system will automatically select the appropriate shader based on browser
+ * capabilities, preferring WebGPU when available.
  */
 @Serializable
 @SerialName("shaderEffect")
@@ -22,17 +26,30 @@ data class ShaderEffectData(
     val enabled: Boolean = true,
     
     /**
-     * The WGSL fragment shader source code.
+     * The WGSL fragment shader source code for WebGPU rendering.
      * Should be a complete fragment shader or a main function body
      * that will be wrapped in the standard effect structure.
      */
     val fragmentShader: String,
     
     /**
-     * Optional vertex shader source code.
+     * Optional GLSL fragment shader for WebGL fallback.
+     * If provided, this shader will be used when WebGPU is unavailable.
+     * Should output to gl_FragColor and use vUv for texture coordinates.
+     */
+    val glslFragmentShader: String? = null,
+    
+    /**
+     * Optional vertex shader source code (WGSL for WebGPU).
      * If not provided, a default fullscreen quad vertex shader is used.
      */
     val vertexShader: String? = null,
+    
+    /**
+     * Optional GLSL vertex shader for WebGL fallback.
+     * If not provided, a default fullscreen triangle vertex shader is used.
+     */
+    val glslVertexShader: String? = null,
     
     /**
      * Uniform values to pass to the shader.
@@ -49,7 +66,12 @@ data class ShaderEffectData(
      * Time scale multiplier for animation speed.
      */
     val timeScale: Float = 1f
-)
+) {
+    /**
+     * Check if this effect has a GLSL fallback shader.
+     */
+    fun hasGLSLFallback(): Boolean = glslFragmentShader != null
+}
 
 /**
  * Data class for effect composer configuration.
@@ -77,7 +99,9 @@ data class SigilCanvasConfig(
     val respectDevicePixelRatio: Boolean = true,
     /** GPU power preference */
     val powerPreference: PowerPreference = PowerPreference.HIGH_PERFORMANCE,
-    /** Whether to fall back to CSS if WebGPU is unavailable */
+    /** Whether to fall back to WebGL if WebGPU is unavailable */
+    val fallbackToWebGL: Boolean = true,
+    /** Whether to fall back to CSS if WebGL is also unavailable */
     val fallbackToCSS: Boolean = true
 )
 

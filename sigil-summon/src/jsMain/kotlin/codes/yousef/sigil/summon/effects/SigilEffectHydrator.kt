@@ -19,10 +19,25 @@ import org.w3c.dom.events.MouseEvent
 private val scope = MainScope()
 
 /**
+ * Renderer type detected or selected for effect rendering.
+ */
+enum class RendererType {
+    WEBGPU,
+    WEBGL,
+    CSS_FALLBACK,
+    NONE
+}
+
+/**
  * Hydrator class for screen-space effects.
- * Creates and manages WebGPU shader passes from serialized effect data.
  * 
- * Uses Materia's EffectComposer and FullScreenEffectPass for rendering.
+ * Automatically detects browser capabilities and uses the best available renderer:
+ * - WebGPU (preferred): Uses WGSL shaders via Materia's EffectComposer
+ * - WebGL (fallback): Uses GLSL shaders via WebGLEffectComposer
+ * - CSS (last resort): Shows static fallback content
+ * 
+ * Uses Materia's EffectComposer and FullScreenEffectPass for WebGPU rendering,
+ * or WebGLEffectComposer and WebGLEffectPass for WebGL fallback.
  */
 class SigilEffectHydrator(
     private val canvas: HTMLCanvasElement,
@@ -32,11 +47,15 @@ class SigilEffectHydrator(
 ) {
     private var running = false
     private var animationFrameId: Int = 0
+    private var rendererType: RendererType = RendererType.NONE
     
-    // Materia effect pipeline components
-    private lateinit var effectComposer: EffectComposer
+    // Materia WebGPU effect pipeline components
+    private var effectComposer: EffectComposer? = null
     private val effectPasses = mutableMapOf<String, FullScreenEffectPass>()
-    private lateinit var renderLoop: RenderLoop
+    private var renderLoop: RenderLoop? = null
+    
+    // WebGL fallback hydrator
+    private var webGLHydrator: WebGLEffectHydrator? = null
     
     // Interaction state
     private var mouseX = 0f
@@ -45,9 +64,66 @@ class SigilEffectHydrator(
     
     /**
      * Initialize the effect hydrator.
-     * Creates Materia FullScreenEffectPass instances for each shader effect.
+     * Automatically detects browser capabilities and selects the best renderer.
      */
     suspend fun initialize(): Boolean {
+        // Detect best available renderer
+        rendererType = detectRendererType()
+        
+        return when (rendererType) {
+            RendererType.WEBGPU -> initializeWebGPU()
+            RendererType.WEBGL -> initializeWebGL()
+            RendererType.CSS_FALLBACK -> {
+                console.log("SigilEffectHydrator: Using CSS fallback")
+                showCSSFallback()
+                true
+            }
+            RendererType.NONE -> {
+                console.error("SigilEffectHydrator: No rendering method available")
+                false
+            }
+        }
+    }
+    
+    /**
+     * Detect the best available renderer type based on browser capabilities
+     * and effect shader availability.
+     */
+    private fun detectRendererType(): RendererType {
+        // Check if WebGPU is available
+        val hasWebGPU = isWebGPUAvailable()
+        val hasWebGL = WebGLEffectHydrator.isWebGLAvailable()
+        
+        // Check if effects have the required shaders
+        val hasWGSLShaders = composerData.effects.any { it.enabled && it.fragmentShader.isNotBlank() }
+        val hasGLSLShaders = composerData.effects.any { it.enabled && it.glslFragmentShader != null }
+        
+        console.log("SigilEffectHydrator: WebGPU=$hasWebGPU, WebGL=$hasWebGL, WGSL=$hasWGSLShaders, GLSL=$hasGLSLShaders")
+        
+        return when {
+            hasWebGPU && hasWGSLShaders -> RendererType.WEBGPU
+            hasWebGL && hasGLSLShaders && config.fallbackToWebGL -> RendererType.WEBGL
+            config.fallbackToCSS -> RendererType.CSS_FALLBACK
+            else -> RendererType.NONE
+        }
+    }
+    
+    /**
+     * Check if WebGPU is available.
+     */
+    private fun isWebGPUAvailable(): Boolean {
+        return try {
+            val navigator = js("navigator")
+            navigator.gpu != undefined && navigator.gpu != null
+        } catch (e: Exception) {
+            false
+        }
+    }
+    
+    /**
+     * Initialize WebGPU rendering.
+     */
+    private suspend fun initializeWebGPU(): Boolean {
         try {
             // Create Materia EffectComposer
             effectComposer = EffectComposer(
@@ -60,7 +136,7 @@ class SigilEffectHydrator(
                 if (effectData.enabled) {
                     val pass = createEffectPass(effectData)
                     effectPasses[effectData.id] = pass
-                    effectComposer.addPass(pass)
+                    effectComposer?.addPass(pass)
                 }
             }
             
@@ -74,13 +150,54 @@ class SigilEffectHydrator(
                 setupMouseListeners()
             }
             
-            console.log("SigilEffectHydrator: Initialized with ${effectPasses.size} effect passes")
+            console.log("SigilEffectHydrator: Initialized WebGPU with ${effectPasses.size} effect passes")
             return true
         } catch (e: Exception) {
-            console.error("SigilEffectHydrator: Failed to initialize: ${e.message}")
+            console.error("SigilEffectHydrator: Failed to initialize WebGPU: ${e.message}")
+            
+            // Try WebGL fallback if available
+            if (config.fallbackToWebGL) {
+                console.log("SigilEffectHydrator: Attempting WebGL fallback")
+                rendererType = RendererType.WEBGL
+                return initializeWebGL()
+            }
+            
             return false
         }
     }
+    
+    /**
+     * Initialize WebGL fallback rendering.
+     */
+    private fun initializeWebGL(): Boolean {
+        webGLHydrator = WebGLEffectHydrator(canvas, composerData, config, interactions)
+        val success = webGLHydrator?.initialize() ?: false
+        
+        if (!success && config.fallbackToCSS) {
+            console.log("SigilEffectHydrator: WebGL failed, using CSS fallback")
+            rendererType = RendererType.CSS_FALLBACK
+            showCSSFallback()
+            return true
+        }
+        
+        return success
+    }
+    
+    /**
+     * Show CSS fallback content.
+     */
+    private fun showCSSFallback() {
+        val fallbackElement = document.getElementById("${canvas.id}-fallback")
+        if (fallbackElement != null) {
+            fallbackElement.asDynamic().style.display = "block"
+            canvas.asDynamic().style.display = "none"
+        }
+    }
+    
+    /**
+     * Get the current renderer type being used.
+     */
+    fun getRendererType(): RendererType = rendererType
     
     /**
      * Create a FullScreenEffectPass from shader effect data.
@@ -202,8 +319,21 @@ class SigilEffectHydrator(
      * Start the render loop.
      */
     fun startRenderLoop() {
+        when (rendererType) {
+            RendererType.WEBGPU -> startWebGPURenderLoop()
+            RendererType.WEBGL -> webGLHydrator?.startRenderLoop()
+            RendererType.CSS_FALLBACK, RendererType.NONE -> {
+                // No render loop needed for CSS fallback
+            }
+        }
+    }
+    
+    /**
+     * Start WebGPU render loop.
+     */
+    private fun startWebGPURenderLoop() {
         running = true
-        renderLoop.start()
+        renderLoop?.start()
         
         // Animation frame loop for GPU rendering.
         // The RenderLoop updates uniforms via its callback,
@@ -214,7 +344,7 @@ class SigilEffectHydrator(
         }
         
         animate()
-        console.log("SigilEffectHydrator: Render loop started with ${effectPasses.size} passes")
+        console.log("SigilEffectHydrator: WebGPU render loop started with ${effectPasses.size} passes")
     }
     
     /**
@@ -222,7 +352,8 @@ class SigilEffectHydrator(
      */
     fun stop() {
         running = false
-        renderLoop.stop()
+        renderLoop?.stop()
+        webGLHydrator?.stop()
         
         if (animationFrameId != 0) {
             window.cancelAnimationFrame(animationFrameId)
@@ -235,15 +366,21 @@ class SigilEffectHydrator(
      */
     fun dispose() {
         stop()
-        effectComposer.dispose()
+        effectComposer?.dispose()
         effectPasses.clear()
+        webGLHydrator?.dispose()
+        webGLHydrator = null
     }
     
     /**
      * Handle canvas resize.
      */
     fun resize(width: Int, height: Int) {
-        effectComposer.setSize(width, height)
+        when (rendererType) {
+            RendererType.WEBGPU -> effectComposer?.setSize(width, height)
+            RendererType.WEBGL -> webGLHydrator?.resize(width, height)
+            RendererType.CSS_FALLBACK, RendererType.NONE -> {}
+        }
     }
     
     companion object {
@@ -296,5 +433,39 @@ object SigilEffectHydratorJs {
     @JsName("hydrate")
     fun hydrate(canvasId: String) {
         SigilEffectHydrator.hydrateFromDOM(canvasId)
+    }
+    
+    /**
+     * Check if WebGPU is available in the current browser.
+     */
+    @JsName("isWebGPUAvailable")
+    fun isWebGPUAvailable(): Boolean {
+        return try {
+            val navigator = js("navigator")
+            navigator.gpu != undefined && navigator.gpu != null
+        } catch (e: Exception) {
+            false
+        }
+    }
+    
+    /**
+     * Check if WebGL is available in the current browser.
+     */
+    @JsName("isWebGLAvailable")
+    fun isWebGLAvailable(): Boolean {
+        return WebGLEffectHydrator.isWebGLAvailable()
+    }
+    
+    /**
+     * Get the renderer type that will be used based on browser capabilities.
+     * Returns: "webgpu", "webgl", "css", or "none"
+     */
+    @JsName("getAvailableRenderer")
+    fun getAvailableRenderer(): String {
+        return when {
+            isWebGPUAvailable() -> "webgpu"
+            isWebGLAvailable() -> "webgl"
+            else -> "css"
+        }
     }
 }

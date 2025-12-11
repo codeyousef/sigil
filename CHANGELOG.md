@@ -2,6 +2,47 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.2.1.0] - 2025-12-11
+
+### Added
+
+#### WebGL Effect Fallback System
+- **`GLSLLib`**: Complete GLSL shader snippet library mirroring WGSLLib for WebGL compatibility
+  - **Hash**: `HASH_21`, `HASH_22`, `HASH_31`, `HASH_33` - pseudo-random functions
+  - **Noise**: `VALUE_2D`, `PERLIN_2D`, `SIMPLEX_2D`, `WORLEY_2D` - procedural noise
+  - **Fractal**: `FBM`, `TURBULENCE`, `RIDGED` - multi-octave noise
+  - **Color**: `COSINE_PALETTE`, `HSV_TO_RGB`, `RGB_TO_HSV`, `HSL_TO_RGB`, `SRGB_TO_LINEAR`, `LINEAR_TO_SRGB`, `GRAYSCALE`
+  - **Math**: `REMAP`, `SMOOTHSTEP_CUBIC`, `SMOOTHSTEP_QUINTIC`, `ROTATION_2D`, `PI`, `TAU`
+  - **SDF**: `CIRCLE`, `BOX`, `ROUNDED_BOX`, `LINE`, `TRIANGLE`, `RING`, `SMOOTH_MIN`
+  - **UV**: `CENTER`, `ROTATE`, `SCALE`, `TILE`
+  - **Effects**: `VIGNETTE`, `FILM_GRAIN`, `CHROMATIC_ABERRATION`, `SCANLINES`, `CRT_CURVATURE`, `BARREL_DISTORTION`
+  - **Presets**: `FRAGMENT_HEADER`, `FRAGMENT_HEADER_WITH_UNIFORMS`, `SIMPLE_GRADIENT`, `ANIMATED_NOISE`
+- **`WebGLEffectHydrator`**: WebGL-based effect renderer for browsers without WebGPU support (Firefox)
+  - Uses Materia's new WebGL effect system (`WebGLEffectComposer`, `WebGLEffectPass`)
+  - Same API and capabilities as WebGPU renderer with GLSL shaders
+- **Automatic renderer detection**: `SigilEffectHydrator` now auto-detects browser capabilities
+  - Prefers WebGPU when available (Chrome, Edge)
+  - Falls back to WebGL when GLSL shaders provided (Firefox)
+  - Falls back to CSS when neither GPU API available
+
+### Changed
+- **`ShaderEffectData`**: Added optional `glslFragmentShader` and `glslVertexShader` fields for WebGL fallback
+- **`SigilCanvasConfig`**: Added `fallbackToWebGL` option (default: true), renamed `fallbackToCSS` for clarity
+- **`SigilEffectHydrator`**: Refactored to support multiple renderer backends
+  - New `RendererType` enum: `WEBGPU`, `WEBGL`, `CSS_FALLBACK`, `NONE`
+  - New `getRendererType()` method to query active renderer
+- **`SigilEffectHydratorJs`**: Added JS-exported utility methods
+  - `isWebGPUAvailable()`: Check WebGPU browser support
+  - `isWebGLAvailable()`: Check WebGL browser support
+  - `getAvailableRenderer()`: Get best available renderer type
+
+### Technical Details
+- 25+ new unit tests for GLSLLib
+- Updated to Materia 0.3.3.0 with WebGL effect system
+- Firefox and Safari compatibility via GLSL shaders
+
+---
+
 ## [0.2.0.0] - 2025-12-11
 
 ### Added
