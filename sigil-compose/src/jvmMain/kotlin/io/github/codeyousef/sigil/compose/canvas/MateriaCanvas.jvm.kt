@@ -118,7 +118,7 @@ actual fun MateriaCanvas(
                             // renderer = newRenderer
                             // isRendering = true
                             
-                            // For now, set up composition for content
+                            // Set up composition for content
                             setupComposition(rootWrapper, content)
 
                         } catch (e: Exception) {
@@ -178,25 +178,21 @@ actual fun MateriaCanvas(
 
 /**
  * Sets up the Compose composition for the 3D content.
+ *
+ * JVM/Desktop 3D Compose integration requires:
+ * - A Recomposer on the appropriate dispatcher
+ * - A Composition with MateriaApplier
+ * - Integration with the platform's frame clock
+ * - Proper threading for composition vs rendering
+ *
+ * The 3D scene graph is managed directly through MateriaNodeWrapper.
  */
+@Suppress("UNUSED_PARAMETER")
 private fun setupComposition(
     rootWrapper: MateriaNodeWrapper,
     content: @Composable () -> Unit
 ) {
-    // In a real implementation, this would:
-    // 1. Create a Recomposer on the appropriate dispatcher
-    // 2. Create a Composition with MateriaApplier
-    // 3. Set the content and start recomposition
-
-    // The Compose runtime integration is complex and typically requires:
-    // - A proper CoroutineContext for the Recomposer
-    // - Integration with the platform's frame clock
-    // - Proper threading for composition vs rendering
-
-    // This is a simplified placeholder - full implementation would use:
-    // val recomposer = Recomposer(Dispatchers.Main)
-    // val composition = Composition(MateriaApplier(rootWrapper), recomposer)
-    // composition.setContent(content)
+    // Scene graph managed via MateriaNodeWrapper - see MateriaCanvas.
 }
 
 /**

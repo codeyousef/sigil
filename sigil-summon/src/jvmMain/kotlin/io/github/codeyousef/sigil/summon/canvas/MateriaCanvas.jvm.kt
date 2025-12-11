@@ -55,7 +55,7 @@ actual fun MateriaCanvas(
         // Container div for the canvas
         append("""<div id="$id-container" style="width: $width; height: $height; position: relative;">""")
 
-        // Placeholder div that will be replaced by the canvas
+        // Initial div that the hydration script will replace with a WebGPU canvas
         append("""<div id="$id" style="width: 100%; height: 100%; background-color: ${intToHexColor(backgroundColor)};"></div>""")
 
         // Embedded scene data for hydration
@@ -103,7 +103,7 @@ private fun buildHydrationScript(canvasId: String): String {
                         window.SigilHydrator.hydrate('$canvasId', sceneData);
                     }
                 } else {
-                    // Retry after a short delay if hydrator not yet loaded
+                    // Retry until hydrator script is loaded
                     setTimeout(hydrateSigil, 50);
                 }
             }

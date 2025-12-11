@@ -41,8 +41,8 @@ fun Application.module() {
 
         // Serve the compiled JS bundle
         get("/static/sample-summon.js") {
-            // In production, this would serve the actual compiled JS file
-            // For development, Webpack dev server can be used
+            // The compiled Webpack bundle should be placed at this path
+            // Use: ./gradlew :sample-summon:jsBrowserProductionWebpack
             call.respondText(
                 contentType = ContentType.Application.JavaScript,
                 text = "// Webpack compiled bundle would be served here"

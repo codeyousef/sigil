@@ -27,8 +27,8 @@
 Add Sigil to your `commonMain` dependencies in `build.gradle.kts`:
 
 ```kotlin
-implementation("io.github.codeyousef:sigil-compose:0.1.0.0")
-implementation("io.github.codeyousef:sigil-schema:0.1.0.0")
+implementation("io.github.codeyousef:sigil-compose:0.2.0.0")
+implementation("io.github.codeyousef:sigil-schema:0.2.0.0")
 ```
 
 ## 🚀 Quick Start
