@@ -24,7 +24,7 @@ val versionProps = Properties().apply {
     }
 }
 
-group = "io.github.codeyousef"
+group = "codes.yousef.sigil"
 version = versionProps.getProperty("VERSION") ?: "0.1.0-SNAPSHOT"
 
 subprojects {
@@ -129,10 +129,10 @@ tasks.register("publishToCentralPortalManually") {
                 val version = project.version.toString()
                 
                 // Construct path in local repo
-                val localMavenDir = file("${System.getProperty("user.home")}/.m2/repository/io/github/codeyousef/$artifactId/$version")
+                val localMavenDir = file("${System.getProperty("user.home")}/.m2/repository/codes/yousef/sigil/$artifactId/$version")
                 
                 if (localMavenDir.exists()) {
-                    val mavenPath = "io/github/codeyousef/$artifactId/$version"
+                    val mavenPath = "codes/yousef/sigil/$artifactId/$version"
                     val targetDir = file("$bundleDir/$mavenPath")
                     targetDir.mkdirs()
 

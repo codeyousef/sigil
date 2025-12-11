@@ -24,7 +24,7 @@ kotlin {
 
 compose.desktop {
     application {
-        mainClass = "io.github.codeyousef.sigil.sample.cmp.MainKt"
+        mainClass = "codes.yousef.sigil.sample.cmp.MainKt"
 
         nativeDistributions {
             targetFormats(

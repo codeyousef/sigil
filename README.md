@@ -2,7 +2,7 @@
 
 **Declarative 3D for Kotlin Multiplatform & Jetpack Compose**
 
-[![Maven Central](https://img.shields.io/maven-central/v/io.github.codeyousef/sigil-compose)](https://central.sonatype.com/artifact/io.github.codeyousef/sigil-compose)
+[![Maven Central](https://img.shields.io/maven-central/v/codes.yousef.sigil/sigil-compose)](https://central.sonatype.com/artifact/codes.yousef.sigil/sigil-compose)
 [![License](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 [![Kotlin](https://img.shields.io/badge/Kotlin-2.0+-7f52ff.svg)](https://kotlinlang.org)
 [![Compose Multiplatform](https://img.shields.io/badge/Compose-Multiplatform-4285F4.svg)](https://www.jetbrains.com/lp/compose-multiplatform/)
@@ -27,8 +27,8 @@
 Add Sigil to your `commonMain` dependencies in `build.gradle.kts`:
 
 ```kotlin
-implementation("io.github.codeyousef:sigil-compose:0.2.0.0")
-implementation("io.github.codeyousef:sigil-schema:0.2.0.0")
+implementation("codes.yousef.sigil:sigil-compose:0.2.0.0")
+implementation("codes.yousef.sigil:sigil-schema:0.2.0.0")
 ```
 
 ## 🚀 Quick Start
@@ -36,8 +36,8 @@ implementation("io.github.codeyousef:sigil-schema:0.2.0.0")
 Create a stunning 3D scene in just a few lines of code:
 
 ```kotlin
-import io.github.codeyousef.sigil.compose.canvas.MateriaCanvas
-import io.github.codeyousef.sigil.compose.composition.*
+import codes.yousef.sigil.compose.canvas.MateriaCanvas
+import codes.yousef.sigil.compose.composition.*
 import io.materia.core.math.Vector3
 
 @Composable

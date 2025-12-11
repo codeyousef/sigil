@@ -13,8 +13,8 @@ This guide will help you set up a basic Sigil project and render a simple 3D sce
 Add the following dependencies to your `build.gradle.kts` (commonMain source set):
 
 ```kotlin
-implementation("io.github.codeyousef:sigil-compose:0.2.0.0")
-implementation("io.github.codeyousef:sigil-schema:0.2.0.0")
+implementation("codes.yousef.sigil:sigil-compose:0.2.0.0")
+implementation("codes.yousef.sigil:sigil-schema:0.2.0.0")
 ```
 
 Ensure you have the correct repositories configured (e.g., Maven Local or a snapshot repository if not on Maven Central).
@@ -28,11 +28,11 @@ The core entry point is `MateriaCanvas`. Inside it, you can define lights, group
 ```kotlin
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
-import io.github.codeyousef.sigil.compose.canvas.MateriaCanvas
-import io.github.codeyousef.sigil.compose.composition.Box
-import io.github.codeyousef.sigil.compose.composition.AmbientLight
-import io.github.codeyousef.sigil.compose.composition.DirectionalLight
-import io.github.codeyousef.sigil.compose.composition.Group
+import codes.yousef.sigil.compose.canvas.MateriaCanvas
+import codes.yousef.sigil.compose.composition.Box
+import codes.yousef.sigil.compose.composition.AmbientLight
+import codes.yousef.sigil.compose.composition.DirectionalLight
+import codes.yousef.sigil.compose.composition.Group
 import io.materia.core.math.Vector3
 
 @Composable
