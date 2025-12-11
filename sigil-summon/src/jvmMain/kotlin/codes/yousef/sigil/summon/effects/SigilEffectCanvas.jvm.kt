@@ -1,6 +1,7 @@
 package codes.yousef.sigil.summon.effects
 
 import codes.yousef.summon.annotation.Composable
+import codes.yousef.summon.components.foundation.RawHtml
 import codes.yousef.sigil.schema.SigilJson
 import codes.yousef.sigil.schema.effects.SigilCanvasConfig
 import codes.yousef.sigil.schema.effects.InteractionConfig
@@ -53,10 +54,8 @@ actual fun SigilEffectCanvas(
     // Render the fallback content (for noscript)
     val fallbackHtml = fallback()
 
-    // Build and return the HTML output
-    // The caller is responsible for injecting this into the page
-    // (e.g., using kotlinx.html's `unsafe { raw(html) }`)
-    return buildString {
+    // Build the HTML output
+    val html = buildString {
         // Container div
         append("""<div id="$id-container" style="width: $width; height: $height; position: relative;">""")
 
@@ -82,6 +81,16 @@ actual fun SigilEffectCanvas(
 
         append("</div>")
     }
+
+    // Try to inject via Summon's renderer if available
+    // Works when called within Summon's SSR rendering pipeline
+    try {
+        RawHtml(html)
+    } catch (_: Exception) {
+        // No active renderer - caller will use returned string
+    }
+
+    return html
 }
 
 /**

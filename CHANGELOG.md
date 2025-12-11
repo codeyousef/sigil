@@ -2,7 +2,19 @@
 
 All notable changes to this project will be documented in this file.
 
-## [0.2.5.1] - 2025-12-11
+## [0.2.6.0] - 2025-12-11
+
+### Fixed
+
+#### SSR Canvas Rendering - Works in Both Contexts
+- **`SigilEffectCanvas.jvm.kt` and `MateriaCanvas.jvm.kt`** now work in both scenarios:
+  - **Summon SSR pipeline**: Calls `RawHtml(html)` to inject into renderer (wrapped in try-catch)
+  - **Manual/direct use**: Returns HTML string for caller to inject (e.g., kotlinx.html `unsafe { raw() }`)
+- This dual approach ensures canvas renders whether used through Summon's composable tree or called directly
+
+---
+
+## [0.2.5.1] - 2025-12-11 [YANKED]
 
 ### Fixed
 
