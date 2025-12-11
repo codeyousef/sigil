@@ -2,6 +2,41 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.2.3.0] - 2025-12-11
+
+### Fixed
+
+#### Complete Hydration Bundle
+- **Compiled JS hydration bundle**: `sigil-hydration.js` now contains the real compiled Kotlin/JS code
+  - Previously was a placeholder that only logged messages to console
+  - Now includes full `SigilEffectHydrator` with WebGPU and WebGL support
+  - Bundle includes all dependencies: Materia engine, kotlinx-coroutines, kotlinx-serialization
+  - Automatically exposes `window.SigilEffectHydrator` for manual hydration
+  - Auto-hydrates all canvases with `data-sigil-effects` attribute on DOMContentLoaded
+
+### Added
+
+#### Multi-Framework Server Integration
+- **`SigilAssets`**: Core asset loading utility shared across all framework integrations
+  - Caching for raw and gzip-compressed assets
+  - Loads assets from JAR resources with classloader fallbacks
+- **`SigilSpringIntegration`**: Spring Boot / Spring MVC integration
+  - `serveHydrationJs()` and `serveHydrationJsMap()` for easy controller setup
+  - Works with `HttpServletRequest` / `HttpServletResponse`
+- **`SigilQuarkusIntegration`**: Quarkus / JAX-RS integration
+  - Servlet-based and reactive endpoint support
+  - `buildResponseBytes()` for manual Response building
+- Refactored `SigilKtorIntegration` to use shared `SigilAssets`
+
+### Technical Details
+- Added `binaries.executable()` to JS target for webpack bundling
+- New `Main.kt` entry point exports hydration API to window global
+- Gradle task `copyJsBundleToJvmResources` copies compiled bundle to JVM resources
+- JVM JAR now includes ~640KB compiled JS bundle (minified)
+- Added Jakarta Servlet API 6.0 as compileOnly dependency
+
+---
+
 ## [0.2.2.0] - 2025-12-11
 
 ### Added

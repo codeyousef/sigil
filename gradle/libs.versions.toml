@@ -6,6 +6,7 @@ compose = "1.7.3"
 serialization = "1.9.0"
 coroutines = "1.9.0"
 ktor = "2.3.12"
+jakarta-servlet = "6.0.0"
 logback = "1.4.14"
 
 [libraries]
@@ -34,6 +35,9 @@ compose-runtime = { group = "org.jetbrains.compose.runtime", name = "runtime", v
 ktor-server-core = { group = "io.ktor", name = "ktor-server-core", version.ref = "ktor" }
 ktor-server-netty = { group = "io.ktor", name = "ktor-server-netty", version.ref = "ktor" }
 ktor-server-html-builder = { group = "io.ktor", name = "ktor-server-html-builder", version.ref = "ktor" }
+
+# Jakarta Servlet API (for Spring Boot / Quarkus integrations)
+jakarta-servlet-api = { group = "jakarta.servlet", name = "jakarta.servlet-api", version.ref = "jakarta-servlet" }
 
 # Logging
 logback-classic = { group = "ch.qos.logback", name = "logback-classic", version.ref = "logback" }

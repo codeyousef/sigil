@@ -7,6 +7,13 @@ kotlin {
     jvm()
     js(IR) {
         browser {
+            // Create executable JS bundle for hydration
+            binaries.executable()
+            
+            webpackTask {
+                mainOutputFileName = "sigil-hydration.js"
+            }
+            
             testTask {
                 useKarma {
                     useChromeHeadless()
@@ -38,9 +45,9 @@ kotlin {
 
         jvmMain {
             dependencies {
-                // JVM-specific Summon dependencies for SSR
-                // Ktor integration dependencies
-                compileOnly(libs.ktor.server.core)
+                // Framework integrations (compileOnly - users provide their own)
+                compileOnly(libs.ktor.server.core)      // Ktor
+                compileOnly(libs.jakarta.servlet.api)   // Spring Boot / Quarkus
             }
         }
 
@@ -52,5 +59,20 @@ kotlin {
     }
 }
 
-// TODO: In the future, add task to copy compiled JS into JVM resources
-// For now, we use a static placeholder in src/jvmMain/resources/static/sigil-hydration.js
+// Copy compiled JS bundle to JVM resources for sigilStaticAssets()
+val copyJsBundleToJvmResources by tasks.registering(Copy::class) {
+    dependsOn("jsBrowserProductionWebpack")
+    from(layout.buildDirectory.dir("kotlin-webpack/js/productionExecutable"))
+    into(layout.projectDirectory.dir("src/jvmMain/resources/static"))
+    include("sigil-hydration.js", "sigil-hydration.js.map")
+}
+
+// Ensure the JS bundle is copied before JVM JAR is built
+tasks.named("jvmProcessResources") {
+    dependsOn(copyJsBundleToJvmResources)
+}
+
+// Also ensure it runs before publishing
+tasks.matching { it.name.contains("publish", ignoreCase = true) }.configureEach {
+    dependsOn(copyJsBundleToJvmResources)
+}

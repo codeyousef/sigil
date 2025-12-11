@@ -11,6 +11,7 @@ Welcome to the Sigil documentation! Sigil is a library for building 3D scenes us
 - [Components](components.md) - A visual guide to Geometries, Lights, and other 3D objects.
 - [State Management](state-management.md) - Learn how to drive animations and updates using Compose state.
 - [Materials](materials.md) - Understanding PBR materials (Color, Metalness, Roughness).
+- [SSR & Hydration](ssr-hydration.md) - Server-side rendering with Ktor and client-side hydration.
 - [Architecture](architecture.md) - Deep dive into Sigil's internal modular design.
 
 ### API Reference
