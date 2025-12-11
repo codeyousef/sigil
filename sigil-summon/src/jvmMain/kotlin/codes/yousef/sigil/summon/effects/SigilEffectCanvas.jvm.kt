@@ -1,6 +1,7 @@
 package codes.yousef.sigil.summon.effects
 
 import codes.yousef.summon.annotation.Composable
+import codes.yousef.summon.components.foundation.RawHtml
 import codes.yousef.sigil.schema.SigilJson
 import codes.yousef.sigil.schema.effects.SigilCanvasConfig
 import codes.yousef.sigil.schema.effects.InteractionConfig
@@ -54,7 +55,7 @@ actual fun SigilEffectCanvas(
     val fallbackHtml = fallback()
 
     // Build the HTML output
-    return buildString {
+    val html = buildString {
         // Container div
         append("""<div id="$id-container" style="width: $width; height: $height; position: relative;">""")
 
@@ -80,6 +81,11 @@ actual fun SigilEffectCanvas(
 
         append("</div>")
     }
+    
+    // Use Summons RawHtml to actually render the HTML into the component tree
+    RawHtml(html)
+    
+    return html
 }
 
 /**
