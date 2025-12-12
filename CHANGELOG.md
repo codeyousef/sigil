@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.7.10] - 2025-12-12
+
+### Fixed
+
+- Improved WGSL uniform struct parser to support any uniform variable name (not just `uniforms`) and handle compact/minified shader formatting.
+- Fixed uniform type mapping for `i32`/`u32` types in WebGPU shaders.
+
 ## [0.2.7.9] - 2025-12-12
 
 ### Fixed

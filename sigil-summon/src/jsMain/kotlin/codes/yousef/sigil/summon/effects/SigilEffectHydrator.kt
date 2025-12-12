@@ -301,13 +301,18 @@ class SigilEffectHydrator(
      * This is required to make the CPU-side uniform packing match the shader's expected offsets.
      */
     private fun extractWgslUniformStructFields(wgsl: String): List<WgslUniformField> {
+        // 1. Find the struct name used in 'var<uniform> ... : StructName;'
+        // Allow any variable name, and handle potential attributes before 'var'
         val uniformVarRegex = Regex(
-            """var<uniform>\s+uniforms\s*:\s*([A-Za-z_][A-Za-z0-9_]*)\s*;"""
+            """var<uniform>\s+([A-Za-z_][A-Za-z0-9_]*)\s*:\s*([A-Za-z_][A-Za-z0-9_]*)\s*;"""
         )
-        val structName = uniformVarRegex.find(wgsl)?.groupValues?.getOrNull(1) ?: return emptyList()
+        val match = uniformVarRegex.find(wgsl) ?: return emptyList()
+        val structName = match.groupValues.getOrNull(2) ?: return emptyList()
 
+        // 2. Find the struct definition: struct StructName { ... }
         val structHeaderRegex = Regex("""\bstruct\s+${Regex.escape(structName)}\b""")
         val headerMatch = structHeaderRegex.find(wgsl) ?: return emptyList()
+        
         val openBraceIndex = wgsl.indexOf('{', startIndex = headerMatch.range.last + 1)
         if (openBraceIndex < 0) return emptyList()
 
@@ -316,27 +321,58 @@ class SigilEffectHydrator(
 
         val body = wgsl.substring(openBraceIndex + 1, closeBraceIndex)
 
-        // WGSL struct fields are line-based and comma-separated. Keep this parser conservative.
-        val fieldRegex = Regex(
-            """^\s*(?:@[A-Za-z_][A-Za-z0-9_]*(?:\([^)]*\))?\s*)*([A-Za-z_][A-Za-z0-9_]*)\s*:\s*([^,]+)"""
-        )
+        // 3. Parse fields. WGSL fields are comma-separated.
+        // Remove comments first
+        val bodyNoComments = body.lines().joinToString("\n") { line ->
+            val idx = line.indexOf("//")
+            if (idx >= 0) line.substring(0, idx) else line
+        }
 
-        return body
-            .lines()
-            .map { line ->
-                // strip line comments
-                val idx = line.indexOf("//")
-                if (idx >= 0) line.substring(0, idx) else line
+        // Split by comma, respecting brackets
+        val fields = mutableListOf<WgslUniformField>()
+        var currentToken = StringBuilder()
+        var bracketDepth = 0
+        
+        for (char in bodyNoComments) {
+            when (char) {
+                '<' -> {
+                    bracketDepth++
+                    currentToken.append(char)
+                }
+                '>' -> {
+                    bracketDepth--
+                    currentToken.append(char)
+                }
+                ',' -> {
+                    if (bracketDepth == 0) {
+                        parseField(currentToken.toString())?.let { fields.add(it) }
+                        currentToken.clear()
+                    } else {
+                        currentToken.append(char)
+                    }
+                }
+                else -> currentToken.append(char)
             }
-            .map { it.trim() }
-            .filter { it.isNotBlank() }
-            .mapNotNull { line ->
-                val match = fieldRegex.find(line) ?: return@mapNotNull null
-                val name = match.groupValues.getOrNull(1)?.trim().orEmpty()
-                val type = match.groupValues.getOrNull(2)?.trim()?.trimEnd(',').orEmpty()
-                if (name.isBlank() || type.isBlank()) null else WgslUniformField(name, type)
-            }
-            .toList()
+        }
+        // Last token
+        if (currentToken.isNotEmpty()) {
+            parseField(currentToken.toString())?.let { fields.add(it) }
+        }
+        
+        return fields
+    }
+
+    private fun parseField(token: String): WgslUniformField? {
+        val trimmed = token.trim()
+        if (trimmed.isBlank()) return null
+        // Match "name : type"
+        // Type can contain < >
+        val parts = trimmed.split(':')
+        if (parts.size < 2) return null
+        val name = parts[0].trim()
+        val type = parts.subList(1, parts.size).joinToString(":").trim()
+        if (name.isBlank() || type.isBlank()) return null
+        return WgslUniformField(name, type)
     }
 
     private fun findMatchingBrace(source: String, openIndex: Int): Int {
@@ -359,7 +395,7 @@ class SigilEffectHydrator(
     private fun io.materia.effects.UniformBlockBuilder.declareFromSchemaValue(name: String, value: UniformValue) {
         when (value) {
             is UniformValue.FloatValue -> float(name)
-            is UniformValue.IntValue -> float(name) // WGSL commonly uses f32 for scalar uniforms
+            is UniformValue.IntValue -> int(name)
             is UniformValue.Vec2Value -> vec2(name)
             is UniformValue.Vec3Value -> vec3(name)
             is UniformValue.Vec4Value -> vec4(name)
@@ -376,6 +412,8 @@ class SigilEffectHydrator(
             t.startsWith("vec4") -> vec4(name)
             t.startsWith("vec3") -> vec3(name)
             t.startsWith("vec2") -> vec2(name)
+            t.startsWith("i32") -> int(name)
+            t.startsWith("u32") -> int(name) // Treat u32 as int for layout
             else -> float(name)
         }
     }
