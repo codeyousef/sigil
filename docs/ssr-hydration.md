@@ -16,10 +16,10 @@ When using Sigil with SSR frameworks like Summon:
 
 ```kotlin
 dependencies {
-    implementation("codes.yousef.sigil:sigil-summon:0.2.3.0")
+    implementation("codes.yousef.sigil:sigil-summon:0.2.7.6")
     
     // Plus your web framework of choice:
-    // implementation("io.ktor:ktor-server-core:2.3.12")           // Ktor
+    // implementation("io.ktor:ktor-server-core:3.0.3")           // Ktor 3.x
     // implementation("org.springframework.boot:spring-boot-starter-web:3.2.0")  // Spring Boot
     // implementation("io.quarkus:quarkus-resteasy-reactive:3.6.0") // Quarkus
 }
@@ -194,11 +194,37 @@ All integrations use the shared `SigilAssets` class which:
 
 ### Hydration Process
 
-1. Page loads with `<canvas data-sigil-effects="...">` elements
+1. Page loads with `<canvas data-sigil-effects='{"id":"...","effects":[...]}'>` elements
 2. `sigil-hydration.js` executes on DOMContentLoaded
-3. Auto-detects all Sigil effect canvases
-4. Checks browser capabilities (WebGPU → WebGL → CSS fallback)
-5. Initializes appropriate renderer and starts animation loop
+3. Auto-detects all Sigil effect canvases via `canvas[data-sigil-effects]` selector
+4. Parses effect data directly from the `data-sigil-effects` attribute (contains full `EffectComposerData` JSON)
+5. Checks browser capabilities (WebGPU → WebGL → CSS fallback)
+6. Initializes appropriate renderer and starts animation loop
+
+### HTML Output Structure
+
+When `SigilEffectCanvas` renders on the server, it produces:
+
+```html
+<div id="my-canvas-container" style="width: 100%; height: 400px; position: relative;">
+  <canvas 
+    id="my-canvas" 
+    data-sigil-effects='{"id":"my-canvas","effects":[{"id":"aurora","name":"Aurora Background","fragmentShader":"...WGSL...","glslFragmentShader":"...GLSL...","uniforms":{...}}]}'
+    data-sigil-config='{"respectDevicePixelRatio":true,"powerPreference":"high-performance",...}'
+    data-sigil-interactions='{"enableMouse":true,...}'
+    style="width: 100%; height: 100%; display: block;">
+  </canvas>
+  <script type="module">/* Hydration loader */</script>
+  <noscript><!-- Fallback content --></noscript>
+</div>
+```
+
+The `data-sigil-effects` attribute contains the complete serialized effect data including:
+- Effect ID and name
+- WGSL fragment shader code (for WebGPU)
+- GLSL fragment shader code (for WebGL fallback)
+- Uniform values
+- Blend mode and opacity settings
 
 ---
 

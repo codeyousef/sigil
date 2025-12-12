@@ -58,3 +58,93 @@ A data class holding all potential geometry parameters (width, height, radius, s
 
 ### `LightType`
 `AMBIENT`, `DIRECTIONAL`, `POINT`, `SPOT`, `HEMISPHERE`.
+
+---
+
+## Screen-Space Effects
+
+### `ShaderEffectData`
+
+Data class for a single shader effect.
+
+```kotlin
+@Serializable
+data class ShaderEffectData(
+    val id: String,
+    val name: String? = null,
+    val fragmentShader: String,           // WGSL shader code
+    val glslFragmentShader: String? = null, // Optional GLSL fallback
+    val blendMode: BlendMode = BlendMode.NORMAL,
+    val opacity: Float = 1f,
+    val enabled: Boolean = true,
+    val uniforms: Map<String, UniformValue> = emptyMap(),
+    val enableMouseInteraction: Boolean = false,
+    val timeScale: Float = 1f
+)
+```
+
+### `EffectComposerData`
+
+Container for multiple effects to be rendered in sequence.
+
+```kotlin
+@Serializable
+data class EffectComposerData(
+    val id: String,
+    val effects: List<ShaderEffectData> = emptyList()
+)
+```
+
+### `SigilCanvasConfig`
+
+Configuration for a SigilCanvas effect rendering.
+
+```kotlin
+@Serializable
+data class SigilCanvasConfig(
+    val id: String = "sigil-canvas",
+    val respectDevicePixelRatio: Boolean = true,
+    val powerPreference: PowerPreference = PowerPreference.HIGH_PERFORMANCE,
+    val fallbackToWebGL: Boolean = true,
+    val fallbackToCSS: Boolean = true
+)
+```
+
+### `InteractionConfig`
+
+Configuration for user interaction handling.
+
+```kotlin
+@Serializable
+data class InteractionConfig(
+    val enableMouse: Boolean = true,
+    val enableTouch: Boolean = true,
+    val smoothing: Float = 0.1f
+)
+```
+
+### `UniformValue`
+
+Sealed class for shader uniform values.
+
+```kotlin
+@Serializable
+sealed class UniformValue {
+    data class FloatValue(val value: Float) : UniformValue()
+    data class Vec2Value(val value: Vec2) : UniformValue()
+    data class Vec3Value(val value: Vec3) : UniformValue()
+    data class Vec4Value(val value: Vec4) : UniformValue()
+    data class IntValue(val value: Int) : UniformValue()
+    data class ColorValue(val value: Int) : UniformValue()
+}
+```
+
+### `BlendMode`
+
+Blend modes for compositing effects.
+
+```kotlin
+enum class BlendMode {
+    NORMAL, ADD, MULTIPLY, SCREEN, OVERLAY
+}
+```

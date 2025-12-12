@@ -2,6 +2,20 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.2.7.6] - 2025-12-12
+
+### Fixed
+
+#### data-sigil-effects Attribute Content
+- **Fixed**: `data-sigil-effects` attribute now contains the actual serialized `EffectComposerData` JSON instead of just `"true"`
+- The attribute now includes the full effect data: shader code (WGSL/GLSL), uniforms, blend modes, etc.
+- Example: `data-sigil-effects='{"id":"canvas-id","effects":[{"id":"aurora-effect",...}]}'`
+- Updated both `SigilEffectHydrator` and `WebGLEffectHydrator` to read effect data from the attribute
+- Fixed HTML entity decoding (`&#39;`, `&lt;`, `&gt;`, `&amp;`) when reading from attributes
+- Removed legacy `<script id="$canvasId-effects">` element - no longer needed
+
+---
+
 ## [0.2.7.5] - 2025-12-12
 
 ### Fixed

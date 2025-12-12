@@ -46,8 +46,8 @@ actual fun SigilEffectCanvas(
     val configJson = SigilJson.encodeToString(config)
     val interactionsJson = SigilJson.encodeToString(interactions)
 
-    // Escape JSON for embedding in HTML - different escaping for different contexts
-    val escapedEffectJson = escapeJsonForScriptTag(effectJson)  // For <script> content
+    // Escape JSON for embedding in HTML attributes
+    val escapedEffectJson = escapeJsonForAttribute(effectJson)  // For HTML attribute (contains actual effects data)
     val escapedConfigJson = escapeJsonForAttribute(configJson)   // For HTML attribute
     val escapedInteractionsJson = escapeJsonForAttribute(interactionsJson)  // For HTML attribute
 
@@ -60,17 +60,14 @@ actual fun SigilEffectCanvas(
         append("""<div id="$id-container" style="width: $width; height: $height; position: relative;">""")
 
         // Canvas element with data attributes
-        // Note: data-sigil-effects (plural) is the marker for auto-hydration
+        // Note: data-sigil-effects contains the full serialized EffectComposerData JSON
         append("""<canvas """)
         append("""id="$id" """)
-        append("""data-sigil-effects="true" """)
+        append("""data-sigil-effects='$escapedEffectJson' """)
         append("""data-sigil-config='$escapedConfigJson' """)
         append("""data-sigil-interactions='$escapedInteractionsJson' """)
         append("""style="width: 100%; height: 100%; display: block;">""")
         append("""</canvas>""")
-
-        // Embedded effect data for hydration
-        append("""<script type="application/json" id="$id-effects">$escapedEffectJson</script>""")
 
         // Hydration loader script
         append(buildEffectHydrationScript(id))

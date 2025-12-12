@@ -439,20 +439,40 @@ class SigilEffectHydrator(
         /**
          * Hydrate effects from DOM data.
          * Called by the hydration script embedded in the HTML.
+         * 
+         * Reads effect data from the data-sigil-effects attribute on the canvas.
          */
         fun hydrateFromDOM(canvasId: String) {
             scope.launch {
                 val canvas = document.getElementById(canvasId) as? HTMLCanvasElement
-                val dataElement = document.getElementById("$canvasId-effects")
                 
-                if (canvas == null || dataElement == null) {
-                    console.error("SigilEffect: Canvas or data element not found for $canvasId")
+                if (canvas == null) {
+                    console.error("SigilEffect: Canvas not found for $canvasId")
                     return@launch
                 }
                 
-                val effectJson = dataElement.textContent ?: return@launch
-                val configJson = canvas.getAttribute("data-sigil-config")?.replace("\\'", "'") ?: "{}"
-                val interactionsJson = canvas.getAttribute("data-sigil-interactions")?.replace("\\'", "'") ?: "{}"
+                // Get effect data from the data-sigil-effects attribute
+                val effectJson = canvas.getAttribute("data-sigil-effects")
+                    ?.replace("&#39;", "'")
+                    ?.replace("&lt;", "<")
+                    ?.replace("&gt;", ">")
+                    ?.replace("&amp;", "&")
+                
+                if (effectJson == null || !effectJson.startsWith("{")) {
+                    console.error("SigilEffect: No valid effect data found in data-sigil-effects attribute for $canvasId")
+                    return@launch
+                }
+                
+                val configJson = canvas.getAttribute("data-sigil-config")
+                    ?.replace("&#39;", "'")
+                    ?.replace("&lt;", "<")
+                    ?.replace("&gt;", ">")
+                    ?.replace("&amp;", "&") ?: "{}"
+                val interactionsJson = canvas.getAttribute("data-sigil-interactions")
+                    ?.replace("&#39;", "'")
+                    ?.replace("&lt;", "<")
+                    ?.replace("&gt;", ">")
+                    ?.replace("&amp;", "&") ?: "{}"
                 
                 try {
                     val composerData = SigilJson.decodeFromString<EffectComposerData>(effectJson)

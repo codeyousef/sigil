@@ -27,8 +27,11 @@
 Add Sigil to your `commonMain` dependencies in `build.gradle.kts`:
 
 ```kotlin
-implementation("codes.yousef.sigil:sigil-compose:0.2.0.0")
-implementation("codes.yousef.sigil:sigil-schema:0.2.0.0")
+implementation("codes.yousef.sigil:sigil-compose:0.2.7.6")
+implementation("codes.yousef.sigil:sigil-schema:0.2.7.6")
+
+// For SSR with Ktor, Spring Boot, or Quarkus:
+implementation("codes.yousef.sigil:sigil-summon:0.2.7.6")
 ```
 
 ## 🚀 Quick Start
@@ -71,6 +74,8 @@ Explore the full guides and API reference:
 - [**Components Guide**](docs/components.md)
 - [**State Management**](docs/state-management.md)
 - [**Materials & PBR**](docs/materials.md)
+- [**SSR & Hydration**](docs/ssr-hydration.md)
+- [**Architecture**](docs/architecture.md)
 
 ## 🤝 Contributing
 
