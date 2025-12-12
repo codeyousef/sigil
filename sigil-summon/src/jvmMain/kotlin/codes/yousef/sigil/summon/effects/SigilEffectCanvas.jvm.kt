@@ -94,13 +94,16 @@ actual fun SigilEffectCanvas(
 }
 
 /**
- * Escape JSON string for safe embedding in HTML.
+ * Escape JSON string for safe embedding in HTML attributes.
+ * Uses HTML entities so browser handles decoding automatically.
  */
 private fun escapeJsonForHtml(json: String): String {
     return json
-        .replace("</", "<\\/")
-        .replace("<!--", "<\\!--")
-        .replace("'", "\\'")
+        .replace("&", "&amp;")   // Must be first
+        .replace("<", "&lt;")
+        .replace(">", "&gt;")
+        .replace("'", "&#39;")   // For single-quoted attributes
+        .replace("\"", "&quot;") // For double-quoted attributes
 }
 
 /**
@@ -154,8 +157,8 @@ private fun buildEffectHydrationScript(canvasId: String): String {
                     const dataElement = document.getElementById('$canvasId-effects');
                     if (canvas && dataElement) {
                         const effectData = JSON.parse(dataElement.textContent);
-                        const config = JSON.parse(canvas.dataset.sigilConfig.replace(/\\'/g, "'"));
-                        const interactions = JSON.parse(canvas.dataset.sigilInteractions.replace(/\\'/g, "'"));
+                        const config = JSON.parse(canvas.dataset.sigilConfig);
+                        const interactions = JSON.parse(canvas.dataset.sigilInteractions);
                         window.SigilEffectHydrator.hydrate('$canvasId', effectData, config, interactions);
                     }
                 } catch (e) {

@@ -2,6 +2,18 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.2.7.1] - 2025-12-12
+
+### Fixed
+
+#### JSON Parsing in Hydration Script
+- Fixed `SyntaxError: JSON.parse: bad escaped character` error
+- Changed JSON escaping for HTML attributes to use HTML entities (`&#39;`, `&quot;`, etc.)
+- Browser automatically decodes HTML entities, so no JS unescaping needed
+- Removed broken `.replace(/\\'/g, "'")` calls from hydration script
+
+---
+
 ## [0.2.7.0] - 2025-12-11
 
 ### Added
