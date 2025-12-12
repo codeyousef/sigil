@@ -2,6 +2,32 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.2.7.0] - 2025-12-11
+
+### Added
+
+#### Auto-Loading Hydration Bundle
+- **Zero-config client setup**: The embedded hydration script now automatically loads `/sigil-hydration.js`
+- End users no longer need to manually add `<script>` tags - just call `sigilStaticAssets()` in Ktor routing
+- The hydration script:
+  - Checks if `SigilEffectHydrator`/`SigilHydrator` is already loaded
+  - If not, dynamically injects a script tag to load the bundle
+  - Waits for the bundle to load before hydrating
+  - Handles errors gracefully with console logging
+
+### Usage
+```kotlin
+// Server setup - just add this once:
+routing {
+    sigilStaticAssets()  // Serves /sigil-hydration.js
+    // ... your routes
+}
+
+// That's it! SigilEffectCanvas output auto-loads the bundle
+```
+
+---
+
 ## [0.2.6.0] - 2025-12-11
 
 ### Fixed

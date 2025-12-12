@@ -105,13 +105,51 @@ private fun escapeJsonForHtml(json: String): String {
 
 /**
  * Build the hydration script for effects.
+ * Automatically loads the Sigil hydration bundle if not already present.
  */
 private fun buildEffectHydrationScript(canvasId: String): String {
     return """
         <script type="module">
         (function() {
-            function hydrateSigilEffect() {
-                if (typeof window.SigilEffectHydrator !== 'undefined') {
+            function loadSigilBundle() {
+                return new Promise((resolve, reject) => {
+                    if (typeof window.SigilEffectHydrator !== 'undefined') {
+                        resolve();
+                        return;
+                    }
+                    if (document.querySelector('script[src*="sigil-hydration"]')) {
+                        // Script tag exists, wait for it to load
+                        const checkLoaded = () => {
+                            if (typeof window.SigilEffectHydrator !== 'undefined') {
+                                resolve();
+                            } else {
+                                setTimeout(checkLoaded, 50);
+                            }
+                        };
+                        checkLoaded();
+                        return;
+                    }
+                    // Load the bundle
+                    const script = document.createElement('script');
+                    script.src = '/sigil-hydration.js';
+                    script.onload = () => {
+                        const checkLoaded = () => {
+                            if (typeof window.SigilEffectHydrator !== 'undefined') {
+                                resolve();
+                            } else {
+                                setTimeout(checkLoaded, 50);
+                            }
+                        };
+                        checkLoaded();
+                    };
+                    script.onerror = () => reject(new Error('Failed to load Sigil hydration bundle'));
+                    document.head.appendChild(script);
+                });
+            }
+            
+            async function hydrateSigilEffect() {
+                try {
+                    await loadSigilBundle();
                     const canvas = document.getElementById('$canvasId');
                     const dataElement = document.getElementById('$canvasId-effects');
                     if (canvas && dataElement) {
@@ -120,8 +158,8 @@ private fun buildEffectHydrationScript(canvasId: String): String {
                         const interactions = JSON.parse(canvas.dataset.sigilInteractions.replace(/\\'/g, "'"));
                         window.SigilEffectHydrator.hydrate('$canvasId', effectData, config, interactions);
                     }
-                } else {
-                    setTimeout(hydrateSigilEffect, 50);
+                } catch (e) {
+                    console.error('Sigil hydration failed:', e);
                 }
             }
             

@@ -100,22 +100,58 @@ private fun intToHexColor(argb: Int): String {
 
 /**
  * Build the hydration script that runs on the client.
+ * Automatically loads the Sigil hydration bundle if not already present.
  */
 private fun buildHydrationScript(canvasId: String): String {
     return """
         <script type="module">
         (function() {
-            // Wait for Sigil hydration library to be available
-            function hydrateSigil() {
-                if (typeof window.SigilHydrator !== 'undefined') {
+            function loadSigilBundle() {
+                return new Promise((resolve, reject) => {
+                    if (typeof window.SigilHydrator !== 'undefined') {
+                        resolve();
+                        return;
+                    }
+                    if (document.querySelector('script[src*="sigil-hydration"]')) {
+                        // Script tag exists, wait for it to load
+                        const checkLoaded = () => {
+                            if (typeof window.SigilHydrator !== 'undefined') {
+                                resolve();
+                            } else {
+                                setTimeout(checkLoaded, 50);
+                            }
+                        };
+                        checkLoaded();
+                        return;
+                    }
+                    // Load the bundle
+                    const script = document.createElement('script');
+                    script.src = '/sigil-hydration.js';
+                    script.onload = () => {
+                        const checkLoaded = () => {
+                            if (typeof window.SigilHydrator !== 'undefined') {
+                                resolve();
+                            } else {
+                                setTimeout(checkLoaded, 50);
+                            }
+                        };
+                        checkLoaded();
+                    };
+                    script.onerror = () => reject(new Error('Failed to load Sigil hydration bundle'));
+                    document.head.appendChild(script);
+                });
+            }
+            
+            async function hydrateSigil() {
+                try {
+                    await loadSigilBundle();
                     const dataElement = document.getElementById('$canvasId-data');
                     if (dataElement) {
                         const sceneData = JSON.parse(dataElement.textContent);
                         window.SigilHydrator.hydrate('$canvasId', sceneData);
                     }
-                } else {
-                    // Retry until hydrator script is loaded
-                    setTimeout(hydrateSigil, 50);
+                } catch (e) {
+                    console.error('Sigil hydration failed:', e);
                 }
             }
             
