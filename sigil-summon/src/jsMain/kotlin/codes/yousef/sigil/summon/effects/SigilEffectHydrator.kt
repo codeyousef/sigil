@@ -92,6 +92,9 @@ class SigilEffectHydrator(
      * Automatically detects browser capabilities and selects the best renderer.
      */
     suspend fun initialize(): Boolean {
+        // Sync canvas buffer size with CSS display size
+        syncCanvasSize()
+        
         // Detect best available renderer
         rendererType = detectRendererType()
         
@@ -398,12 +401,36 @@ class SigilEffectHydrator(
     }
     
     /**
+     * Sync canvas buffer size with CSS display size.
+     * This ensures the WebGPU/WebGL buffer matches the actual display size.
+     */
+    private fun syncCanvasSize() {
+        val rect = canvas.getBoundingClientRect()
+        val dpr = window.devicePixelRatio
+        val displayWidth = (rect.width * dpr).toInt()
+        val displayHeight = (rect.height * dpr).toInt()
+        
+        if (canvas.width != displayWidth || canvas.height != displayHeight) {
+            canvas.width = displayWidth
+            canvas.height = displayHeight
+            console.log("SigilEffectHydrator: Synced canvas size to ${displayWidth}x${displayHeight} (DPR: $dpr)")
+        }
+    }
+    
+    /**
      * Handle canvas resize.
      */
     fun resize(width: Int, height: Int) {
+        // Update canvas buffer size
+        val dpr = window.devicePixelRatio
+        val bufferWidth = (width * dpr).toInt()
+        val bufferHeight = (height * dpr).toInt()
+        canvas.width = bufferWidth
+        canvas.height = bufferHeight
+        
         when (rendererType) {
-            RendererType.WEBGPU -> effectComposer?.setSize(width, height)
-            RendererType.WEBGL -> webGLHydrator?.resize(width, height)
+            RendererType.WEBGPU -> effectComposer?.setSize(bufferWidth, bufferHeight)
+            RendererType.WEBGL -> webGLHydrator?.resize(bufferWidth, bufferHeight)
             RendererType.CSS_FALLBACK, RendererType.NONE -> {}
         }
     }

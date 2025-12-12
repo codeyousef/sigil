@@ -2,6 +2,18 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.2.7.4] - 2025-12-12
+
+### Fixed
+
+#### Canvas Buffer Size Sync
+- Fixed invisible/distorted rendering caused by canvas buffer size mismatch
+- Canvas buffer size (default 300x150) is now synced with CSS display size before WebGPU/WebGL initialization
+- Added `syncCanvasSize()` that uses `getBoundingClientRect()` and `devicePixelRatio` for proper HiDPI support
+- Updated `resize()` to also sync buffer size with DPR scaling
+
+---
+
 ## [0.2.7.3] - 2025-12-12
 
 ### Fixed
