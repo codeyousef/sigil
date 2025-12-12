@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.2.7.9] - 2025-12-12
+
+### Fixed
+
+- Fixed a browser crash in the shipped `sigil-hydration.js` (`SyntaxError: invalid regexp group`) by removing JS-incompatible regex usage in WGSL parsing.
+
 ## [0.2.7.8] - 2025-12-12
 
 ### Fixed

@@ -306,21 +306,54 @@ class SigilEffectHydrator(
         )
         val structName = uniformVarRegex.find(wgsl)?.groupValues?.getOrNull(1) ?: return emptyList()
 
-        val structRegex = Regex(
-            """(?s)struct\s+${Regex.escape(structName)}\s*\{(.*?)\}"""
-        )
-        val body = structRegex.find(wgsl)?.groupValues?.getOrNull(1) ?: return emptyList()
+        val structHeaderRegex = Regex("""\bstruct\s+${Regex.escape(structName)}\b""")
+        val headerMatch = structHeaderRegex.find(wgsl) ?: return emptyList()
+        val openBraceIndex = wgsl.indexOf('{', startIndex = headerMatch.range.last + 1)
+        if (openBraceIndex < 0) return emptyList()
 
+        val closeBraceIndex = findMatchingBrace(wgsl, openBraceIndex)
+        if (closeBraceIndex <= openBraceIndex) return emptyList()
+
+        val body = wgsl.substring(openBraceIndex + 1, closeBraceIndex)
+
+        // WGSL struct fields are line-based and comma-separated. Keep this parser conservative.
         val fieldRegex = Regex(
-            """([A-Za-z_][A-Za-z0-9_]*)\s*:\s*([^,\n}]+)"""
+            """^\s*(?:@[A-Za-z_][A-Za-z0-9_]*(?:\([^)]*\))?\s*)*([A-Za-z_][A-Za-z0-9_]*)\s*:\s*([^,]+)"""
         )
-        return fieldRegex.findAll(body)
-            .mapNotNull { m ->
-                val name = m.groupValues.getOrNull(1)?.trim().orEmpty()
-                val type = m.groupValues.getOrNull(2)?.trim().orEmpty()
+
+        return body
+            .lines()
+            .map { line ->
+                // strip line comments
+                val idx = line.indexOf("//")
+                if (idx >= 0) line.substring(0, idx) else line
+            }
+            .map { it.trim() }
+            .filter { it.isNotBlank() }
+            .mapNotNull { line ->
+                val match = fieldRegex.find(line) ?: return@mapNotNull null
+                val name = match.groupValues.getOrNull(1)?.trim().orEmpty()
+                val type = match.groupValues.getOrNull(2)?.trim()?.trimEnd(',').orEmpty()
                 if (name.isBlank() || type.isBlank()) null else WgslUniformField(name, type)
             }
             .toList()
+    }
+
+    private fun findMatchingBrace(source: String, openIndex: Int): Int {
+        if (openIndex !in source.indices || source[openIndex] != '{') return -1
+        var depth = 0
+        var i = openIndex
+        while (i < source.length) {
+            when (source[i]) {
+                '{' -> depth++
+                '}' -> {
+                    depth--
+                    if (depth == 0) return i
+                }
+            }
+            i++
+        }
+        return -1
     }
 
     private fun io.materia.effects.UniformBlockBuilder.declareFromSchemaValue(name: String, value: UniformValue) {

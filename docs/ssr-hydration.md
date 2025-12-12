@@ -16,7 +16,7 @@ When using Sigil with SSR frameworks like Summon:
 
 ```kotlin
 dependencies {
-    implementation("codes.yousef.sigil:sigil-summon:0.2.7.8")
+    implementation("codes.yousef.sigil:sigil-summon:0.2.7.9")
     
     // Plus your web framework of choice:
     // implementation("io.ktor:ktor-server-core:3.0.3")           // Ktor 3.x
