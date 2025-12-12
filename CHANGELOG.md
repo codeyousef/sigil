@@ -2,6 +2,17 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.2.7.3] - 2025-12-12
+
+### Fixed
+
+#### ResizeObserver Callback in Hydrator
+- Fixed `TypeError: can't access property, this is undefined` in ResizeObserver callback
+- Replaced inline `js()` call with proper Kotlin external class declaration for `ResizeObserver`
+- The Kotlin callback is now properly captured and invoked when the canvas resizes
+
+---
+
 ## [0.2.7.2] - 2025-12-12
 
 ### Fixed

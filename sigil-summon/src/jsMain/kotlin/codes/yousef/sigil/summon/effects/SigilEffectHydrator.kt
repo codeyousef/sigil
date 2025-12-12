@@ -13,10 +13,35 @@ import kotlinx.browser.document
 import kotlinx.browser.window
 import kotlinx.coroutines.MainScope
 import kotlinx.coroutines.launch
+import org.w3c.dom.Element
 import org.w3c.dom.HTMLCanvasElement
 import org.w3c.dom.events.MouseEvent
 
 private val scope = MainScope()
+
+/**
+ * External declaration for ResizeObserver.
+ */
+external class ResizeObserver(callback: (Array<dynamic>) -> Unit) {
+    fun observe(target: Element)
+    fun unobserve(target: Element)
+    fun disconnect()
+}
+
+/**
+ * Setup a ResizeObserver on an element with a Kotlin callback.
+ */
+private fun setupResizeObserver(element: Element, onResize: (Double, Double) -> Unit) {
+    val observer = ResizeObserver { entries ->
+        entries.forEach { entry ->
+            val rect = entry.contentRect
+            val width = rect.width as Double
+            val height = rect.height as Double
+            onResize(width, height)
+        }
+    }
+    observer.observe(element)
+}
 
 /**
  * Renderer type detected or selected for effect rendering.
@@ -411,9 +436,10 @@ class SigilEffectHydrator(
                     if (hydrator.initialize()) {
                         hydrator.startRenderLoop()
                         
-                        // Setup resize observer
-                        val resizeObserver = js("new ResizeObserver(function(entries) { entries.forEach(function(entry) { hydrator.resize(entry.contentRect.width, entry.contentRect.height); }); })")
-                        resizeObserver.observe(canvas)
+                        // Setup resize observer using Kotlin callback
+                        setupResizeObserver(canvas) { width, height ->
+                            hydrator.resize(width.toInt(), height.toInt())
+                        }
                     }
                 } catch (e: Exception) {
                     console.error("SigilEffect: Failed to hydrate $canvasId: ${e.message}")
