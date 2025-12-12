@@ -60,9 +60,10 @@ actual fun SigilEffectCanvas(
         append("""<div id="$id-container" style="width: $width; height: $height; position: relative;">""")
 
         // Canvas element with data attributes
+        // Note: data-sigil-effects (plural) is the marker for auto-hydration
         append("""<canvas """)
         append("""id="$id" """)
-        append("""data-sigil-effect="true" """)
+        append("""data-sigil-effects="true" """)
         append("""data-sigil-config='$escapedConfigJson' """)
         append("""data-sigil-interactions='$escapedInteractionsJson' """)
         append("""style="width: 100%; height: 100%; display: block;">""")

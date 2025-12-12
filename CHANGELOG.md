@@ -2,6 +2,18 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.2.7.5] - 2025-12-12
+
+### Fixed
+
+#### Auto-Hydration Attribute Mismatch
+- Fixed canvas not being found by auto-hydration
+- Changed `data-sigil-effect="true"` to `data-sigil-effects="true"` (plural)
+- Auto-hydration looks for `canvas[data-sigil-effects]` selector
+- Now auto-hydration correctly finds and hydrates effect canvases
+
+---
+
 ## [0.2.7.4] - 2025-12-12
 
 ### Fixed
