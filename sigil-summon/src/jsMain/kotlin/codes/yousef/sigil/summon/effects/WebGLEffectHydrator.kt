@@ -127,7 +127,7 @@ class WebGLEffectHydrator(
                 float("mouseDown")
                 
                 // Effect-specific uniforms
-                effectData.uniforms.forEach { (name, value) ->
+                effectData.uniforms.entries.sortedBy { it.key }.forEach { (name, value) ->
                     when (value) {
                         is UniformValue.FloatValue -> float(name)
                         is UniformValue.IntValue -> float(name)
@@ -166,7 +166,7 @@ class WebGLEffectHydrator(
                 }
                 
                 // Effect-specific uniforms
-                effectData.uniforms.forEach { (name, value) ->
+                effectData.uniforms.entries.sortedBy { it.key }.forEach { (name, value) ->
                     when (value) {
                         is UniformValue.FloatValue -> set(name, value.value)
                         is UniformValue.IntValue -> set(name, value.value.toFloat())

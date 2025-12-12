@@ -161,13 +161,11 @@ private fun buildEffectHydrationScript(canvasId: String): String {
                 try {
                     await loadSigilBundle();
                     const canvas = document.getElementById('$canvasId');
-                    const dataElement = document.getElementById('$canvasId-effects');
-                    if (canvas && dataElement) {
-                        const effectData = JSON.parse(dataElement.textContent);
-                        const config = JSON.parse(canvas.dataset.sigilConfig);
-                        const interactions = JSON.parse(canvas.dataset.sigilInteractions);
-                        window.SigilEffectHydrator.hydrate('$canvasId', effectData, config, interactions);
-                    }
+                    if (!canvas) return;
+                    const effectData = JSON.parse(canvas.dataset.sigilEffects);
+                    const config = JSON.parse(canvas.dataset.sigilConfig);
+                    const interactions = JSON.parse(canvas.dataset.sigilInteractions);
+                    window.SigilEffectHydrator.hydrate('$canvasId', effectData, config, interactions);
                 } catch (e) {
                     console.error('Sigil hydration failed:', e);
                 }

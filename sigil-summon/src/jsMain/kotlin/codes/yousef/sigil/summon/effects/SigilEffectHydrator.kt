@@ -231,6 +231,8 @@ class SigilEffectHydrator(
      * Create a FullScreenEffectPass from shader effect data.
      */
     private fun createEffectPass(effectData: ShaderEffectData): FullScreenEffectPass {
+        val orderedCustomUniformNames = extractWgslUniformBindings(effectData.fragmentShader)
+
         return FullScreenEffectPass.create {
             fragmentShader = effectData.fragmentShader
             
@@ -247,14 +249,16 @@ class SigilEffectHydrator(
             
             // Build uniforms block
             uniforms {
-                // Always include standard uniforms
-                float("time")
-                vec2("resolution")
-                vec2("mouse")
-                float("mouseDown")
-                
-                // Add effect-specific uniforms
-                effectData.uniforms.forEach { (name, value) ->
+                // IMPORTANT (WebGPU): binding(0) is reserved for EffectUniforms (built-ins).
+                // Custom uniforms must start at binding(1+). Do NOT declare built-ins here.
+
+                val declared = mutableSetOf<String>()
+
+                // First, declare any uniforms that are explicitly bound in the WGSL source.
+                // This ensures the declaration order matches binding indices (1..N).
+                orderedCustomUniformNames.forEach { name ->
+                    val value = effectData.uniforms[name] ?: return@forEach
+                    declared.add(name)
                     when (value) {
                         is UniformValue.FloatValue -> float(name)
                         is UniformValue.IntValue -> float(name) // WGSL uses f32 for uniform scalars
@@ -265,8 +269,49 @@ class SigilEffectHydrator(
                         is UniformValue.Mat4Value -> mat4(name)
                     }
                 }
+
+                // Then declare any remaining custom uniforms (deterministic order).
+                for ((name, value) in effectData.uniforms.entries.sortedBy { it.key }) {
+                    if (declared.contains(name)) continue
+                    when (value) {
+                        is UniformValue.FloatValue -> float(name)
+                        is UniformValue.IntValue -> float(name)
+                        is UniformValue.Vec2Value -> vec2(name)
+                        is UniformValue.Vec3Value -> vec3(name)
+                        is UniformValue.Vec4Value -> vec4(name)
+                        is UniformValue.Mat3Value -> mat3(name)
+                        is UniformValue.Mat4Value -> mat4(name)
+                    }
+                }
             }
         }
+    }
+
+    /**
+     * Extract WGSL uniform resource bindings from the shader source.
+     *
+     * Expected patterns:
+     * - @group(0) @binding(1) var<uniform> noiseScale: f32;
+     * - @binding(2) @group(0) var<uniform> paletteA: vec3<f32>;
+     *
+     * Returns uniform names ordered by their binding index (ascending), excluding binding(0).
+     */
+    private fun extractWgslUniformBindings(wgsl: String): List<String> {
+        val regex = Regex(
+            """@binding\((\d+)\)[^\n]*var<uniform>\s+([A-Za-z_][A-Za-z0-9_]*)\s*:\s*[^;]+;"""
+        )
+
+        return regex.findAll(wgsl)
+            .mapNotNull { match ->
+                val binding = match.groupValues.getOrNull(1)?.toIntOrNull() ?: return@mapNotNull null
+                if (binding <= 0) return@mapNotNull null
+                val name = match.groupValues.getOrNull(2) ?: return@mapNotNull null
+                binding to name
+            }
+            .toList()
+            .sortedBy { it.first }
+            .map { it.second }
+            .distinct()
     }
     
     /**

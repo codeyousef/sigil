@@ -2,6 +2,15 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.2.7.7] - 2025-12-12
+
+### Fixed
+
+- SSR inline hydration loader now reads effect/config/interaction JSON from `data-*` attributes (no legacy `"$canvasId-effects"` script element).
+- WebGPU custom uniform declarations are ordered to match WGSL `@binding(n)` indices to ensure bindings 1..N are wired correctly.
+
+---
+
 ## [0.2.7.6] - 2025-12-12
 
 ### Fixed
