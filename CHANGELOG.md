@@ -1,6 +1,13 @@
 # Changelog
 
-All notable changes to this project will be documented in this file.
+## [0.2.7.8] - 2025-12-12
+
+### Fixed
+
+- WebGPU effect uniforms now follow the WGSL uniform struct field order (single `@group(0) @binding(0)` uniform buffer), fixing custom uniforms reading as `0`.
+- Improved runtime error surfacing for WebGPU per-frame uniform updates.
+
+---
 
 ## [0.2.7.7] - 2025-12-12
 

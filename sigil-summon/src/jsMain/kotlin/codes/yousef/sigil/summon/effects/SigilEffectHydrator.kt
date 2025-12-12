@@ -77,6 +77,8 @@ class SigilEffectHydrator(
     // Materia WebGPU effect pipeline components
     private var effectComposer: EffectComposer? = null
     private val effectPasses = mutableMapOf<String, FullScreenEffectPass>()
+    private val declaredUniformsByEffectId = mutableMapOf<String, Set<String>>()
+    private val loggedMissingUniforms = mutableSetOf<String>()
     private var renderLoop: RenderLoop? = null
     
     // WebGL fallback hydrator
@@ -86,6 +88,8 @@ class SigilEffectHydrator(
     private var mouseX = 0f
     private var mouseY = 0f
     private var isMouseDown = false
+
+    private var lastFrameTotalTime = 0f
     
     /**
      * Initialize the effect hydrator.
@@ -170,7 +174,12 @@ class SigilEffectHydrator(
             
             // Create render loop
             renderLoop = RenderLoop { frame: FrameInfo ->
-                updateEffects(frame)
+                try {
+                    updateEffects(frame)
+                } catch (t: Throwable) {
+                    console.error("SigilEffectHydrator: WebGPU frame update failed: ${t.message}")
+                    console.error(t)
+                }
             }
             
             // Setup interaction listeners
@@ -231,7 +240,10 @@ class SigilEffectHydrator(
      * Create a FullScreenEffectPass from shader effect data.
      */
     private fun createEffectPass(effectData: ShaderEffectData): FullScreenEffectPass {
-        val orderedCustomUniformNames = extractWgslUniformBindings(effectData.fragmentShader)
+        val uniformStructFields = extractWgslUniformStructFields(effectData.fragmentShader)
+        val structFieldNames = uniformStructFields.map { it.name }.toSet()
+        val declaredFieldNames = (structFieldNames + effectData.uniforms.keys).toSet()
+        declaredUniformsByEffectId[effectData.id] = declaredFieldNames
 
         return FullScreenEffectPass.create {
             fragmentShader = effectData.fragmentShader
@@ -249,93 +261,133 @@ class SigilEffectHydrator(
             
             // Build uniforms block
             uniforms {
-                // IMPORTANT (WebGPU): binding(0) is reserved for EffectUniforms (built-ins).
-                // Custom uniforms must start at binding(1+). Do NOT declare built-ins here.
+                // WebGPU: Materia packs uniforms into a single uniform buffer (binding 0).
+                // To ensure correct offsets, declare fields in the exact order used by the WGSL
+                // struct bound to `var<uniform> uniforms: ...`.
 
                 val declared = mutableSetOf<String>()
 
-                // First, declare any uniforms that are explicitly bound in the WGSL source.
-                // This ensures the declaration order matches binding indices (1..N).
-                orderedCustomUniformNames.forEach { name ->
-                    val value = effectData.uniforms[name] ?: return@forEach
-                    declared.add(name)
-                    when (value) {
-                        is UniformValue.FloatValue -> float(name)
-                        is UniformValue.IntValue -> float(name) // WGSL uses f32 for uniform scalars
-                        is UniformValue.Vec2Value -> vec2(name)
-                        is UniformValue.Vec3Value -> vec3(name)
-                        is UniformValue.Vec4Value -> vec4(name)
-                        is UniformValue.Mat3Value -> mat3(name)
-                        is UniformValue.Mat4Value -> mat4(name)
+                if (uniformStructFields.isNotEmpty()) {
+                    for (field in uniformStructFields) {
+                        val name = field.name
+                        declared.add(name)
+                        val schemaValue = effectData.uniforms[name]
+                        if (schemaValue != null) {
+                            declareFromSchemaValue(name, schemaValue)
+                        } else {
+                            declareFromWgslType(name, field.wgslType)
+                        }
                     }
                 }
 
-                // Then declare any remaining custom uniforms (deterministic order).
+                // Declare any remaining schema-provided uniforms that were not present in the WGSL
+                // struct (won't affect offsets of the struct fields).
                 for ((name, value) in effectData.uniforms.entries.sortedBy { it.key }) {
                     if (declared.contains(name)) continue
-                    when (value) {
-                        is UniformValue.FloatValue -> float(name)
-                        is UniformValue.IntValue -> float(name)
-                        is UniformValue.Vec2Value -> vec2(name)
-                        is UniformValue.Vec3Value -> vec3(name)
-                        is UniformValue.Vec4Value -> vec4(name)
-                        is UniformValue.Mat3Value -> mat3(name)
-                        is UniformValue.Mat4Value -> mat4(name)
-                    }
+                    declared.add(name)
+                    declareFromSchemaValue(name, value)
                 }
             }
         }
     }
 
-    /**
-     * Extract WGSL uniform resource bindings from the shader source.
-     *
-     * Expected patterns:
-     * - @group(0) @binding(1) var<uniform> noiseScale: f32;
-     * - @binding(2) @group(0) var<uniform> paletteA: vec3<f32>;
-     *
-     * Returns uniform names ordered by their binding index (ascending), excluding binding(0).
-     */
-    private fun extractWgslUniformBindings(wgsl: String): List<String> {
-        val regex = Regex(
-            """@binding\((\d+)\)[^\n]*var<uniform>\s+([A-Za-z_][A-Za-z0-9_]*)\s*:\s*[^;]+;"""
-        )
+    private data class WgslUniformField(
+        val name: String,
+        val wgslType: String
+    )
 
-        return regex.findAll(wgsl)
-            .mapNotNull { match ->
-                val binding = match.groupValues.getOrNull(1)?.toIntOrNull() ?: return@mapNotNull null
-                if (binding <= 0) return@mapNotNull null
-                val name = match.groupValues.getOrNull(2) ?: return@mapNotNull null
-                binding to name
+    /**
+     * Extract field order from the WGSL struct bound to `var<uniform> uniforms: <StructName>;`.
+     * This is required to make the CPU-side uniform packing match the shader's expected offsets.
+     */
+    private fun extractWgslUniformStructFields(wgsl: String): List<WgslUniformField> {
+        val uniformVarRegex = Regex(
+            """var<uniform>\s+uniforms\s*:\s*([A-Za-z_][A-Za-z0-9_]*)\s*;"""
+        )
+        val structName = uniformVarRegex.find(wgsl)?.groupValues?.getOrNull(1) ?: return emptyList()
+
+        val structRegex = Regex(
+            """(?s)struct\s+${Regex.escape(structName)}\s*\{(.*?)\}"""
+        )
+        val body = structRegex.find(wgsl)?.groupValues?.getOrNull(1) ?: return emptyList()
+
+        val fieldRegex = Regex(
+            """([A-Za-z_][A-Za-z0-9_]*)\s*:\s*([^,\n}]+)"""
+        )
+        return fieldRegex.findAll(body)
+            .mapNotNull { m ->
+                val name = m.groupValues.getOrNull(1)?.trim().orEmpty()
+                val type = m.groupValues.getOrNull(2)?.trim().orEmpty()
+                if (name.isBlank() || type.isBlank()) null else WgslUniformField(name, type)
             }
             .toList()
-            .sortedBy { it.first }
-            .map { it.second }
-            .distinct()
+    }
+
+    private fun io.materia.effects.UniformBlockBuilder.declareFromSchemaValue(name: String, value: UniformValue) {
+        when (value) {
+            is UniformValue.FloatValue -> float(name)
+            is UniformValue.IntValue -> float(name) // WGSL commonly uses f32 for scalar uniforms
+            is UniformValue.Vec2Value -> vec2(name)
+            is UniformValue.Vec3Value -> vec3(name)
+            is UniformValue.Vec4Value -> vec4(name)
+            is UniformValue.Mat3Value -> mat3(name)
+            is UniformValue.Mat4Value -> mat4(name)
+        }
+    }
+
+    private fun io.materia.effects.UniformBlockBuilder.declareFromWgslType(name: String, wgslType: String) {
+        val t = wgslType.replace(" ", "")
+        when {
+            t.startsWith("mat4") -> mat4(name)
+            t.startsWith("mat3") -> mat3(name)
+            t.startsWith("vec4") -> vec4(name)
+            t.startsWith("vec3") -> vec3(name)
+            t.startsWith("vec2") -> vec2(name)
+            else -> float(name)
+        }
     }
     
     /**
      * Update all effects with current frame and interaction data.
      */
     private fun updateEffects(frame: FrameInfo) {
+        val totalTime = frame.totalTime
+        val deltaTime = (totalTime - lastFrameTotalTime).coerceAtLeast(0f)
+        lastFrameTotalTime = totalTime
+
         composerData.effects.forEach { effectData ->
             val pass = effectPasses[effectData.id] ?: return@forEach
+            val declared = declaredUniformsByEffectId[effectData.id].orEmpty()
             
             pass.updateUniforms {
                 // Standard uniforms
-                set("time", frame.totalTime * effectData.timeScale)
-                set("resolution", canvas.width.toFloat(), canvas.height.toFloat())
-                
-                if (effectData.enableMouseInteraction) {
-                    set("mouse", mouseX, mouseY)
-                    set("mouseDown", if (isMouseDown) 1f else 0f)
-                } else {
-                    set("mouse", 0.5f, 0.5f)
-                    set("mouseDown", 0f)
+                if (declared.contains("time")) set("time", totalTime * effectData.timeScale)
+                if (declared.contains("deltaTime")) set("deltaTime", deltaTime)
+                if (declared.contains("resolution")) set("resolution", canvas.width.toFloat(), canvas.height.toFloat())
+                if (declared.contains("scroll")) set("scroll", 0f)
+                if (declared.contains("_padding")) set("_padding", 0f)
+
+                // Optional interaction uniforms (only if present in the shader struct)
+                if (declared.contains("mouse")) {
+                    if (effectData.enableMouseInteraction) {
+                        set("mouse", mouseX, mouseY)
+                    } else {
+                        set("mouse", 0.5f, 0.5f)
+                    }
+                }
+                if (declared.contains("mouseDown")) {
+                    set("mouseDown", if (effectData.enableMouseInteraction && isMouseDown) 1f else 0f)
                 }
                 
                 // Effect-specific uniforms
                 effectData.uniforms.forEach { (name, value) ->
+                    if (!declared.contains(name)) {
+                        val key = "${effectData.id}:$name"
+                        if (loggedMissingUniforms.add(key)) {
+                            console.warn("SigilEffectHydrator: Uniform '$name' not declared in shader for effect ${effectData.id}")
+                        }
+                        return@forEach
+                    }
                     when (value) {
                         is UniformValue.FloatValue -> set(name, value.value)
                         is UniformValue.IntValue -> set(name, value.value.toFloat())
