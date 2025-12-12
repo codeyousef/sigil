@@ -46,10 +46,10 @@ actual fun SigilEffectCanvas(
     val configJson = SigilJson.encodeToString(config)
     val interactionsJson = SigilJson.encodeToString(interactions)
 
-    // Escape JSON for embedding in HTML
-    val escapedEffectJson = escapeJsonForHtml(effectJson)
-    val escapedConfigJson = escapeJsonForHtml(configJson)
-    val escapedInteractionsJson = escapeJsonForHtml(interactionsJson)
+    // Escape JSON for embedding in HTML - different escaping for different contexts
+    val escapedEffectJson = escapeJsonForScriptTag(effectJson)  // For <script> content
+    val escapedConfigJson = escapeJsonForAttribute(configJson)   // For HTML attribute
+    val escapedInteractionsJson = escapeJsonForAttribute(interactionsJson)  // For HTML attribute
 
     // Render the fallback content (for noscript)
     val fallbackHtml = fallback()
@@ -94,16 +94,25 @@ actual fun SigilEffectCanvas(
 }
 
 /**
- * Escape JSON string for safe embedding in HTML attributes.
- * Uses HTML entities so browser handles decoding automatically.
+ * Escape JSON for embedding inside a <script type="application/json"> tag.
+ * Only need to escape sequences that could close the script tag.
  */
-private fun escapeJsonForHtml(json: String): String {
+private fun escapeJsonForScriptTag(json: String): String {
+    return json
+        .replace("</", "<\\/")     // Prevent closing script tag
+        .replace("<!--", "<\\!--") // Prevent HTML comment
+}
+
+/**
+ * Escape JSON for embedding in a single-quoted HTML attribute.
+ * Browser auto-decodes HTML entities when reading dataset properties.
+ */
+private fun escapeJsonForAttribute(json: String): String {
     return json
         .replace("&", "&amp;")   // Must be first
-        .replace("<", "&lt;")
-        .replace(">", "&gt;")
-        .replace("'", "&#39;")   // For single-quoted attributes
-        .replace("\"", "&quot;") // For double-quoted attributes
+        .replace("'", "&#39;")   // Escape single quotes for single-quoted attribute
+        .replace("<", "&lt;")    // Safety
+        .replace(">", "&gt;")    // Safety
 }
 
 /**

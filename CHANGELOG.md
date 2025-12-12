@@ -2,6 +2,18 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.2.7.2] - 2025-12-12
+
+### Fixed
+
+#### Proper JSON Escaping for Different HTML Contexts
+- Fixed "expected property name or '}'" JSON parse error
+- Script tag content (`<script type="application/json">`) now uses minimal escaping (only `</` and `<!--`)
+- HTML attributes (`data-sigil-config='...'`) use HTML entity escaping (`&#39;`, `&lt;`, etc.)
+- Previously, double quotes were being escaped to `&quot;` inside script tags which broke JSON parsing
+
+---
+
 ## [0.2.7.1] - 2025-12-12
 
 ### Fixed
