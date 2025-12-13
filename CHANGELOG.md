@@ -1,10 +1,16 @@
 # Changelog
 
-## [0.2.8.3] - 2025-12-13
+## [0.2.8.4] - 2025-12-13
 
 ### Fixed
 
 - **WebGPU effect rendering now works**: Updated to Materia 0.3.4.2 which adds `@JsExport` to `WebGPUEffectComposer`, fixing the `i.render is not a function` error caused by Kotlin/JS IR backend name mangling
+
+## [0.2.8.3] - 2025-12-13
+
+### Fixed
+
+- **WebGPU effect rendering**: Updated to Materia 0.3.4.1 which fixes the `WebGPUEffectComposer.render()` method (0.3.4.0 had broken ping-pong texture logic)
 
 ## [0.2.8.2] - 2025-12-13
 
