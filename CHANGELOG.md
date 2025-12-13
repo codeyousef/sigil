@@ -1,21 +1,63 @@
 # Changelog
 
-## [0.2.7.12] - 2025-12-13
+## [0.2.8.0] - 2025-12-13
 
-### Fixed
+### Added
 
-- **`CustomShaderEffect()` now accepts `glslFragmentShader` parameter**: The helper function was missing the GLSL shader parameter, causing all effects created via `CustomShaderEffect()` to have no GLSL fallback. Since Sigil now uses WebGL exclusively for effects (due to Materia limitations), this meant effects couldn't render.
+- **WebGPU Effect Rendering**: Now uses Materia's new `WebGPUEffectComposer` for native WebGPU fullscreen effects!
+  - WGSL shaders (`fragmentShader`) are now rendered directly via WebGPU when available
+  - Automatic fallback to WebGL with GLSL shaders when WebGPU unavailable
+  - Ping-pong texture system for multi-pass rendering
+  - Full blend mode support
+
+### Changed
+
+- **Renderer Detection**: Now prefers WebGPU over WebGL when browser supports it
+- Updated to Materia 0.3.4.0 (adds `WebGPUEffectComposer`)
 
 ### Usage
 
 ```kotlin
+// WebGPU-first with WebGL fallback
 CustomShaderEffect(
     id = "aurora",
-    fragmentShader = wgslShaderCode,        // WGSL (for future WebGPU support)
+    fragmentShader = wgslShaderCode,        // Used by WebGPU (preferred)
+    glslFragmentShader = glslShaderCode,    // Used by WebGL (fallback for Firefox)
+    uniforms = mapOf(...)
+)
+
+// WebGPU-only (no fallback for browsers without WebGPU)
+CustomShaderEffect(
+    id = "aurora",
+    fragmentShader = wgslShaderCode,
+    uniforms = mapOf(...)
+)
+```
+
+## [0.2.7.12] - 2025-12-13
+
+### Fixed
+
+- **`CustomShaderEffect()` now accepts `glslFragmentShader` parameter**: The helper function was missing the GLSL shader parameter. Since Sigil uses WebGL for effects (Materia lacks `WebGPUEffectComposer`), effects need `glslFragmentShader` to render.
+
+### Important: Effects Require GLSL Shaders
+
+The WebGPU effect path was **never functional** - it created passes but never called `render()`. Materia's `EffectComposer` (WebGPU) is just a pass manager without rendering. Only `WebGLEffectComposer` has a `render()` method.
+
+**To make effects work**, you must provide a GLSL shader:
+
+```kotlin
+CustomShaderEffect(
+    id = "aurora",
+    fragmentShader = wgslShaderCode,        // WGSL (stored for future WebGPU support)
     glslFragmentShader = glslShaderCode,    // GLSL (required for current WebGL rendering)
     uniforms = mapOf(...)
 )
 ```
+
+### Changed
+
+- Improved console logging: now warns when effects have WGSL but no GLSL fallback
 
 ## [0.2.7.11] - 2025-12-13
 

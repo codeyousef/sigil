@@ -8,10 +8,11 @@ import io.materia.effects.BlendMode as MateriaBlendMode
 import io.materia.effects.RenderLoop
 import io.materia.effects.FrameInfo
 import io.materia.effects.FullScreenEffectPass
-import io.materia.effects.EffectComposer
+import io.materia.renderer.webgpu.WebGPUEffectComposer
 import kotlinx.browser.document
 import kotlinx.browser.window
 import kotlinx.coroutines.MainScope
+import kotlinx.coroutines.await
 import kotlinx.coroutines.launch
 import org.w3c.dom.Element
 import org.w3c.dom.HTMLCanvasElement
@@ -75,7 +76,9 @@ class SigilEffectHydrator(
     private var rendererType: RendererType = RendererType.NONE
     
     // Materia WebGPU effect pipeline components
-    private var effectComposer: EffectComposer? = null
+    private var webGPUComposer: WebGPUEffectComposer? = null
+    private var webGPUDevice: dynamic = null
+    private var webGPUContext: dynamic = null
     private val effectPasses = mutableMapOf<String, FullScreenEffectPass>()
     private val declaredUniformsByEffectId = mutableMapOf<String, Set<String>>()
     private val loggedMissingUniforms = mutableSetOf<String>()
@@ -121,25 +124,38 @@ class SigilEffectHydrator(
      * Detect the best available renderer type based on browser capabilities
      * and effect shader availability.
      * 
-     * NOTE: As of Materia 0.3.3.1, there is no WebGPUEffectComposer - only WebGLEffectComposer
-     * has a render() method. The base EffectComposer is just a pass manager without rendering.
-     * Therefore, we currently prefer WebGL for fullscreen effects even when WebGPU is available.
+     * As of Materia 0.3.4.0, both WebGPU and WebGL effect composers are available:
+     * - WebGPUEffectComposer: Uses WGSL shaders (preferred when WebGPU available)
+     * - WebGLEffectComposer: Uses GLSL shaders (fallback for Firefox, Safari)
      */
     private fun detectRendererType(): RendererType {
-        // Check if WebGL is available (preferred for effects as of Materia 0.3.3.1)
+        val hasWebGPU = isWebGPUAvailable()
         val hasWebGL = WebGLEffectHydrator.isWebGLAvailable()
         
         // Check if effects have the required shaders
         val hasGLSLShaders = composerData.effects.any { it.enabled && it.glslFragmentShader != null }
         val hasWGSLShaders = composerData.effects.any { it.enabled && it.fragmentShader.isNotBlank() }
         
-        console.log("SigilEffectHydrator: WebGL=$hasWebGL, GLSL=$hasGLSLShaders, WGSL=$hasWGSLShaders")
-        console.log("SigilEffectHydrator: Using WebGL for effects (Materia WebGPU effects not yet supported)")
+        console.log("SigilEffectHydrator: WebGPU=$hasWebGPU, WebGL=$hasWebGL, WGSL=$hasWGSLShaders, GLSL=$hasGLSLShaders")
         
         return when {
-            // Prefer WebGL for effects - it's the only working path in Materia currently
-            hasWebGL && hasGLSLShaders -> RendererType.WEBGL
-            config.fallbackToCSS -> RendererType.CSS_FALLBACK
+            // Prefer WebGPU with WGSL shaders
+            hasWebGPU && hasWGSLShaders -> {
+                console.log("SigilEffectHydrator: Using WebGPU with WGSL shaders")
+                RendererType.WEBGPU
+            }
+            // Fall back to WebGL with GLSL shaders
+            hasWebGL && hasGLSLShaders && config.fallbackToWebGL -> {
+                console.log("SigilEffectHydrator: Using WebGL with GLSL shaders")
+                RendererType.WEBGL
+            }
+            // CSS fallback
+            config.fallbackToCSS -> {
+                if (hasWGSLShaders && !hasWebGPU) {
+                    console.warn("SigilEffectHydrator: WebGPU not available. Provide glslFragmentShader for WebGL fallback.")
+                }
+                RendererType.CSS_FALLBACK
+            }
             else -> RendererType.NONE
         }
     }
@@ -157,12 +173,49 @@ class SigilEffectHydrator(
     }
     
     /**
-     * Initialize WebGPU rendering.
+     * Initialize WebGPU rendering using Materia's WebGPUEffectComposer.
      */
     private suspend fun initializeWebGPU(): Boolean {
         try {
-            // Create Materia EffectComposer
-            effectComposer = EffectComposer(
+            // Request WebGPU adapter and device
+            val navigator = js("navigator")
+            val gpu = navigator.gpu
+            if (gpu == null || gpu == undefined) {
+                console.error("SigilEffectHydrator: WebGPU not available")
+                return fallbackToWebGL()
+            }
+            
+            val adapterPromise: kotlin.js.Promise<dynamic> = gpu.requestAdapter().unsafeCast<kotlin.js.Promise<dynamic>>()
+            val adapter: dynamic = adapterPromise.await()
+            if (adapter == null) {
+                console.error("SigilEffectHydrator: Failed to get WebGPU adapter")
+                return fallbackToWebGL()
+            }
+            
+            val devicePromise: kotlin.js.Promise<dynamic> = adapter.requestDevice().unsafeCast<kotlin.js.Promise<dynamic>>()
+            val device: dynamic = devicePromise.await()
+            if (device == null) {
+                console.error("SigilEffectHydrator: Failed to get WebGPU device")
+                return fallbackToWebGL()
+            }
+            
+            // Configure canvas context for WebGPU
+            val context = canvas.getContext("webgpu")
+            if (context == null) {
+                console.error("SigilEffectHydrator: Failed to get WebGPU canvas context")
+                return fallbackToWebGL()
+            }
+            
+            val format = gpu.getPreferredCanvasFormat()
+            context.asDynamic().configure(js("{device: device, format: format, alphaMode: 'premultiplied'}"))
+            
+            // Store device and context for render loop
+            webGPUDevice = device
+            webGPUContext = context
+            
+            // Create WebGPUEffectComposer (cast device to expected type)
+            webGPUComposer = WebGPUEffectComposer(
+                device = device.unsafeCast<io.materia.renderer.webgpu.GPUDevice>(),
                 width = canvas.width,
                 height = canvas.height
             )
@@ -172,11 +225,11 @@ class SigilEffectHydrator(
                 if (effectData.enabled) {
                     val pass = createEffectPass(effectData)
                     effectPasses[effectData.id] = pass
-                    effectComposer?.addPass(pass)
+                    webGPUComposer?.addPass(pass)
                 }
             }
             
-            // Create render loop
+            // Create render loop for uniform updates
             renderLoop = RenderLoop { frame: FrameInfo ->
                 try {
                     updateEffects(frame)
@@ -195,16 +248,20 @@ class SigilEffectHydrator(
             return true
         } catch (e: Exception) {
             console.error("SigilEffectHydrator: Failed to initialize WebGPU: ${e.message}")
-            
-            // Try WebGL fallback if available
-            if (config.fallbackToWebGL) {
-                console.log("SigilEffectHydrator: Attempting WebGL fallback")
-                rendererType = RendererType.WEBGL
-                return initializeWebGL()
-            }
-            
-            return false
+            return fallbackToWebGL()
         }
+    }
+    
+    /**
+     * Fallback to WebGL if WebGPU initialization fails.
+     */
+    private fun fallbackToWebGL(): Boolean {
+        if (config.fallbackToWebGL) {
+            console.log("SigilEffectHydrator: Attempting WebGL fallback")
+            rendererType = RendererType.WEBGL
+            return initializeWebGL()
+        }
+        return false
     }
     
     /**
@@ -529,23 +586,28 @@ class SigilEffectHydrator(
     }
     
     /**
-     * Start WebGPU render loop.
-     * 
-     * NOTE: As of Materia 0.3.3.1, this code path is unused because there is no
-     * WebGPUEffectComposer. The base EffectComposer class doesn't have a render() method.
-     * Effects currently always use WebGL via WebGLEffectHydrator.
-     * 
-     * This method is kept for future compatibility when Materia adds WebGPU effect support.
+     * Start WebGPU render loop using WebGPUEffectComposer.
      */
     private fun startWebGPURenderLoop() {
         running = true
         renderLoop?.start()
         
-        // Animation frame loop for GPU rendering.
-        // TODO: When Materia adds WebGPUEffectComposer, call its render() method here
         fun animate() {
             if (!running) return
-            // effectComposer?.render() // Not available on base EffectComposer
+            
+            try {
+                // Get current swapchain texture from canvas context
+                val currentTexture = webGPUContext?.getCurrentTexture()
+                if (currentTexture != null) {
+                    val textureView = currentTexture.createView()
+                    
+                    // Render all effect passes to the swapchain texture
+                    webGPUComposer?.render(textureView)
+                }
+            } catch (e: Exception) {
+                console.error("SigilEffectHydrator: WebGPU render error: ${e.message}")
+            }
+            
             animationFrameId = window.requestAnimationFrame { animate() }
         }
         
@@ -572,7 +634,10 @@ class SigilEffectHydrator(
      */
     fun dispose() {
         stop()
-        effectComposer?.dispose()
+        webGPUComposer?.dispose()
+        webGPUComposer = null
+        webGPUDevice = null
+        webGPUContext = null
         effectPasses.clear()
         webGLHydrator?.dispose()
         webGLHydrator = null
@@ -607,7 +672,7 @@ class SigilEffectHydrator(
         canvas.height = bufferHeight
         
         when (rendererType) {
-            RendererType.WEBGPU -> effectComposer?.setSize(bufferWidth, bufferHeight)
+            RendererType.WEBGPU -> webGPUComposer?.setSize(bufferWidth, bufferHeight)
             RendererType.WEBGL -> webGLHydrator?.resize(bufferWidth, bufferHeight)
             RendererType.CSS_FALLBACK, RendererType.NONE -> {}
         }
