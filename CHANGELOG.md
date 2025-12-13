@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.2.8.2] - 2025-12-13
+
+### Fixed
+
+- **WebGPU render loop dynamic dispatch**: Fixed `asDynamic is not a function` error by using `asDynamic()` on the composer object rather than type-casting the texture view parameter
+
 ## [0.2.8.1] - 2025-12-13
 
 ### Fixed

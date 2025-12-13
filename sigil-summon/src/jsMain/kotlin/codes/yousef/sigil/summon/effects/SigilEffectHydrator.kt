@@ -599,11 +599,11 @@ class SigilEffectHydrator(
                 // Get current swapchain texture from canvas context
                 val currentTexture = webGPUContext.getCurrentTexture()
                 if (currentTexture != null && currentTexture != undefined) {
-                    val textureView = currentTexture.createView()
+                    val textureView: dynamic = currentTexture.createView()
                     
                     // Render all effect passes to the swapchain texture
-                    // Cast to expected GPUTextureView type
-                    webGPUComposer?.render(textureView.unsafeCast<io.materia.renderer.webgpu.GPUTextureView>())
+                    // Pass directly as dynamic - Materia handles the JS interop
+                    webGPUComposer?.asDynamic()?.render(textureView)
                 }
             } catch (e: dynamic) {
                 console.error("SigilEffectHydrator: WebGPU render error: $e")
