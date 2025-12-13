@@ -1,10 +1,16 @@
 # Changelog
 
+## [0.2.8.5] - 2025-12-13
+
+### Fixed
+
+- **Removed asDynamic() workaround**: Now that Materia 0.3.4.2 exports `render()` via `@JsExport`, removed the `asDynamic()` call that was causing `asDynamic is not a function` error
+
 ## [0.2.8.4] - 2025-12-13
 
 ### Fixed
 
-- **WebGPU effect rendering now works**: Updated to Materia 0.3.4.2 which adds `@JsExport` to `WebGPUEffectComposer`, fixing the `i.render is not a function` error caused by Kotlin/JS IR backend name mangling
+- **WebGPU effect rendering**: Updated to Materia 0.3.4.2 which adds `@JsExport` to `WebGPUEffectComposer`, fixing the `i.render is not a function` error caused by Kotlin/JS IR backend name mangling
 
 ## [0.2.8.3] - 2025-12-13
 
