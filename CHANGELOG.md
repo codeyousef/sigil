@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.2.8.7] - 2025-12-13
+
+### Fixed
+
+- **WebGPU rendering now works**: Updated to Materia 0.3.4.3 which removes redundant `.asDynamic()` calls on `js({})` results that were causing runtime errors
+
 ## [0.2.8.6] - 2025-12-13
 
 ### Fixed
