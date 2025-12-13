@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.2.7.12] - 2025-12-13
+
+### Fixed
+
+- **`CustomShaderEffect()` now accepts `glslFragmentShader` parameter**: The helper function was missing the GLSL shader parameter, causing all effects created via `CustomShaderEffect()` to have no GLSL fallback. Since Sigil now uses WebGL exclusively for effects (due to Materia limitations), this meant effects couldn't render.
+
+### Usage
+
+```kotlin
+CustomShaderEffect(
+    id = "aurora",
+    fragmentShader = wgslShaderCode,        // WGSL (for future WebGPU support)
+    glslFragmentShader = glslShaderCode,    // GLSL (required for current WebGL rendering)
+    uniforms = mapOf(...)
+)
+```
+
 ## [0.2.7.11] - 2025-12-13
 
 ### Changed

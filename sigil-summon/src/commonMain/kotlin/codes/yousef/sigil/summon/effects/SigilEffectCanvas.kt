@@ -48,6 +48,7 @@ fun SigilEffect(effect: ShaderEffectData): String {
  *
  * @param id Unique identifier for the effect
  * @param fragmentShader WGSL fragment shader source code
+ * @param glslFragmentShader GLSL fragment shader for WebGL rendering (REQUIRED for effects to work)
  * @param name Optional human-readable name
  * @param timeScale Time multiplier for animations
  * @param enableMouseInteraction Whether to track mouse position
@@ -56,6 +57,7 @@ fun SigilEffect(effect: ShaderEffectData): String {
 fun CustomShaderEffect(
     id: String,
     fragmentShader: String,
+    glslFragmentShader: String? = null,
     name: String? = null,
     timeScale: Float = 1f,
     enableMouseInteraction: Boolean = false,
@@ -66,6 +68,7 @@ fun CustomShaderEffect(
             id = id,
             name = name,
             fragmentShader = fragmentShader,
+            glslFragmentShader = glslFragmentShader,
             timeScale = timeScale,
             enableMouseInteraction = enableMouseInteraction,
             uniforms = uniforms
