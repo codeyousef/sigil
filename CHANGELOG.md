@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.2.8.3] - 2025-12-13
+
+### Fixed
+
+- **WebGPU effect rendering now works**: Updated to Materia 0.3.4.1 which fixes the `WebGPUEffectComposer.render()` method (0.3.4.0 had broken ping-pong texture logic)
+
 ## [0.2.8.2] - 2025-12-13
 
 ### Fixed
