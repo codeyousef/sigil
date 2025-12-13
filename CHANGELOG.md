@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.2.7.11] - 2025-12-13
+
+### Changed
+
+- **Effects now use WebGL exclusively**: Materia 0.3.3.1 clarified that only `WebGLEffectComposer` has a `render()` method. The base `EffectComposer` is just a pass manager. Sigil now always uses WebGL for fullscreen effects regardless of WebGPU availability.
+
+### Fixed
+
+- Effects now actually render! The previous "WebGPU" path was non-functional because `EffectComposer.render()` doesn't exist.
+- Updated documentation to reflect Materia's effect system architecture.
+
 ## [0.2.7.10] - 2025-12-12
 
 ### Fixed

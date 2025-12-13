@@ -120,21 +120,25 @@ class SigilEffectHydrator(
     /**
      * Detect the best available renderer type based on browser capabilities
      * and effect shader availability.
+     * 
+     * NOTE: As of Materia 0.3.3.1, there is no WebGPUEffectComposer - only WebGLEffectComposer
+     * has a render() method. The base EffectComposer is just a pass manager without rendering.
+     * Therefore, we currently prefer WebGL for fullscreen effects even when WebGPU is available.
      */
     private fun detectRendererType(): RendererType {
-        // Check if WebGPU is available
-        val hasWebGPU = isWebGPUAvailable()
+        // Check if WebGL is available (preferred for effects as of Materia 0.3.3.1)
         val hasWebGL = WebGLEffectHydrator.isWebGLAvailable()
         
         // Check if effects have the required shaders
-        val hasWGSLShaders = composerData.effects.any { it.enabled && it.fragmentShader.isNotBlank() }
         val hasGLSLShaders = composerData.effects.any { it.enabled && it.glslFragmentShader != null }
+        val hasWGSLShaders = composerData.effects.any { it.enabled && it.fragmentShader.isNotBlank() }
         
-        console.log("SigilEffectHydrator: WebGPU=$hasWebGPU, WebGL=$hasWebGL, WGSL=$hasWGSLShaders, GLSL=$hasGLSLShaders")
+        console.log("SigilEffectHydrator: WebGL=$hasWebGL, GLSL=$hasGLSLShaders, WGSL=$hasWGSLShaders")
+        console.log("SigilEffectHydrator: Using WebGL for effects (Materia WebGPU effects not yet supported)")
         
         return when {
-            hasWebGPU && hasWGSLShaders -> RendererType.WEBGPU
-            hasWebGL && hasGLSLShaders && config.fallbackToWebGL -> RendererType.WEBGL
+            // Prefer WebGL for effects - it's the only working path in Materia currently
+            hasWebGL && hasGLSLShaders -> RendererType.WEBGL
             config.fallbackToCSS -> RendererType.CSS_FALLBACK
             else -> RendererType.NONE
         }
@@ -526,16 +530,22 @@ class SigilEffectHydrator(
     
     /**
      * Start WebGPU render loop.
+     * 
+     * NOTE: As of Materia 0.3.3.1, this code path is unused because there is no
+     * WebGPUEffectComposer. The base EffectComposer class doesn't have a render() method.
+     * Effects currently always use WebGL via WebGLEffectHydrator.
+     * 
+     * This method is kept for future compatibility when Materia adds WebGPU effect support.
      */
     private fun startWebGPURenderLoop() {
         running = true
         renderLoop?.start()
         
         // Animation frame loop for GPU rendering.
-        // The RenderLoop updates uniforms via its callback,
-        // and EffectComposer manages the pass chain and GPU submission.
+        // TODO: When Materia adds WebGPUEffectComposer, call its render() method here
         fun animate() {
             if (!running) return
+            // effectComposer?.render() // Not available on base EffectComposer
             animationFrameId = window.requestAnimationFrame { animate() }
         }
         
