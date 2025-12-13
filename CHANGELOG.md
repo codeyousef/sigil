@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.2.8.6] - 2025-12-13
+
+### Fixed
+
+- **Rebuilt JS bundle**: Ensured the compiled `sigil-hydration.js` bundle includes the fix from 0.2.8.5
+
 ## [0.2.8.5] - 2025-12-13
 
 ### Fixed
