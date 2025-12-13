@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.2.8.1] - 2025-12-13
+
+### Fixed
+
+- **WebGPU render loop type casting**: Fixed `asDynamic is not a function` error in WebGPU render loop by properly casting `GPUTextureView` for `WebGPUEffectComposer.render()`
+
 ## [0.2.8.0] - 2025-12-13
 
 ### Added

@@ -597,15 +597,16 @@ class SigilEffectHydrator(
             
             try {
                 // Get current swapchain texture from canvas context
-                val currentTexture = webGPUContext?.getCurrentTexture()
-                if (currentTexture != null) {
+                val currentTexture = webGPUContext.getCurrentTexture()
+                if (currentTexture != null && currentTexture != undefined) {
                     val textureView = currentTexture.createView()
                     
                     // Render all effect passes to the swapchain texture
-                    webGPUComposer?.render(textureView)
+                    // Cast to expected GPUTextureView type
+                    webGPUComposer?.render(textureView.unsafeCast<io.materia.renderer.webgpu.GPUTextureView>())
                 }
-            } catch (e: Exception) {
-                console.error("SigilEffectHydrator: WebGPU render error: ${e.message}")
+            } catch (e: dynamic) {
+                console.error("SigilEffectHydrator: WebGPU render error: $e")
             }
             
             animationFrameId = window.requestAnimationFrame { animate() }
