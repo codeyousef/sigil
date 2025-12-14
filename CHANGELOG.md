@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.2.8.9] - 2025-12-14
+
+### Fixed
+
+- **WebGPU device mismatch error**: Fixed "TextureView of Texture is associated with [Device]" error caused by double initialization creating two separate GPUDevice instances
+  - Added guard to prevent `hydrateFromDOM()` from initializing the same canvas twice
+  - Canvas IDs are now tracked in a set; DOM marker `data-sigil-hydrated` provides cross-script detection
+  - Hydrator reference stored on canvas element (`canvas.__sigilHydrator`) for cleanup
+
+### Added
+
+- **Hot reload support**: New `forceReinitialize` parameter allows re-hydrating a canvas (disposes existing hydrator first)
+- **Cleanup API**: New methods exposed to JavaScript:
+  - `SigilEffectHydrator.hydrateWithOptions(canvasId, forceReinitialize)` - Hydrate with hot reload option
+  - `SigilEffectHydrator.dispose(canvasId)` - Clean up GPU resources
+  - `SigilEffectHydrator.isHydrated(canvasId)` - Check hydration status
+
 ## [0.2.8.8] - 2025-12-14
 
 ### Fixed

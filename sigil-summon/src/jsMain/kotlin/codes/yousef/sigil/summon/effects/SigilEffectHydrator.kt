@@ -682,13 +682,19 @@ class SigilEffectHydrator(
     }
     
     companion object {
+        // Track hydrated canvases to prevent double initialization
+        private val hydratedCanvases = mutableSetOf<String>()
+        
         /**
          * Hydrate effects from DOM data.
          * Called by the hydration script embedded in the HTML.
          * 
          * Reads effect data from the data-sigil-effects attribute on the canvas.
+         * 
+         * @param canvasId The ID of the canvas element to hydrate
+         * @param forceReinitialize If true, disposes existing hydrator and reinitializes (for hot reload)
          */
-        fun hydrateFromDOM(canvasId: String) {
+        fun hydrateFromDOM(canvasId: String, forceReinitialize: Boolean = false) {
             scope.launch {
                 val canvas = document.getElementById(canvasId) as? HTMLCanvasElement
                 
@@ -696,6 +702,29 @@ class SigilEffectHydrator(
                     console.error("SigilEffect: Canvas not found for $canvasId")
                     return@launch
                 }
+                
+                // Check if already hydrated
+                val existingHydrator = canvas.asDynamic().__sigilHydrator as? SigilEffectHydrator
+                if (existingHydrator != null) {
+                    if (!forceReinitialize) {
+                        console.warn("SigilEffect: Canvas $canvasId already hydrated, skipping (use forceReinitialize=true to reinitialize)")
+                        return@launch
+                    }
+                    // Clean up existing hydrator for hot reload
+                    console.log("SigilEffect: Reinitializing $canvasId (hot reload)")
+                    existingHydrator.dispose()
+                    hydratedCanvases.remove(canvasId)
+                    canvas.removeAttribute("data-sigil-hydrated")
+                }
+                
+                // Secondary check using DOM attribute (for cross-script detection)
+                if (canvas.getAttribute("data-sigil-hydrated") == "true" && !forceReinitialize) {
+                    console.warn("SigilEffect: Canvas $canvasId already hydrated (DOM marker), skipping")
+                    return@launch
+                }
+                
+                // Mark as hydrating
+                hydratedCanvases.add(canvasId)
                 
                 // Get effect data from the data-sigil-effects attribute
                 val effectJson = canvas.getAttribute("data-sigil-effects")
@@ -706,6 +735,7 @@ class SigilEffectHydrator(
                 
                 if (effectJson == null || !effectJson.startsWith("{")) {
                     console.error("SigilEffect: No valid effect data found in data-sigil-effects attribute for $canvasId")
+                    hydratedCanvases.remove(canvasId)
                     return@launch
                 }
                 
@@ -729,15 +759,51 @@ class SigilEffectHydrator(
                     if (hydrator.initialize()) {
                         hydrator.startRenderLoop()
                         
+                        // Store hydrator reference on canvas for cleanup and hot reload
+                        canvas.asDynamic().__sigilHydrator = hydrator
+                        
+                        // Mark as hydrated in DOM for cross-script detection
+                        canvas.setAttribute("data-sigil-hydrated", "true")
+                        
                         // Setup resize observer using Kotlin callback
                         setupResizeObserver(canvas) { width, height ->
                             hydrator.resize(width.toInt(), height.toInt())
                         }
+                    } else {
+                        hydratedCanvases.remove(canvasId)
                     }
                 } catch (e: Exception) {
                     console.error("SigilEffect: Failed to hydrate $canvasId: ${e.message}")
+                    hydratedCanvases.remove(canvasId)
                 }
             }
+        }
+        
+        /**
+         * Get the hydrator instance for a canvas, if it exists.
+         */
+        fun getHydrator(canvasId: String): SigilEffectHydrator? {
+            val canvas = document.getElementById(canvasId) as? HTMLCanvasElement ?: return null
+            return canvas.asDynamic().__sigilHydrator as? SigilEffectHydrator
+        }
+        
+        /**
+         * Dispose the hydrator for a canvas and clean up resources.
+         */
+        fun disposeHydrator(canvasId: String) {
+            val canvas = document.getElementById(canvasId) as? HTMLCanvasElement ?: return
+            val hydrator = canvas.asDynamic().__sigilHydrator as? SigilEffectHydrator
+            hydrator?.dispose()
+            canvas.asDynamic().__sigilHydrator = null
+            canvas.removeAttribute("data-sigil-hydrated")
+            hydratedCanvases.remove(canvasId)
+        }
+        
+        /**
+         * Check if a canvas is currently hydrated.
+         */
+        fun isHydrated(canvasId: String): Boolean {
+            return canvasId in hydratedCanvases
         }
     }
 }
@@ -749,9 +815,39 @@ class SigilEffectHydrator(
 @JsExport
 @JsName("SigilEffectHydrator")
 object SigilEffectHydratorJs {
+    /**
+     * Hydrate a canvas with effect data from its data-sigil-effects attribute.
+     */
     @JsName("hydrate")
     fun hydrate(canvasId: String) {
         SigilEffectHydrator.hydrateFromDOM(canvasId)
+    }
+    
+    /**
+     * Hydrate a canvas, optionally forcing reinitialization (for hot reload).
+     * 
+     * @param canvasId The ID of the canvas element to hydrate
+     * @param forceReinitialize If true, disposes existing hydrator and reinitializes
+     */
+    @JsName("hydrateWithOptions")
+    fun hydrateWithOptions(canvasId: String, forceReinitialize: Boolean) {
+        SigilEffectHydrator.hydrateFromDOM(canvasId, forceReinitialize)
+    }
+    
+    /**
+     * Dispose the hydrator for a canvas and clean up all GPU resources.
+     */
+    @JsName("dispose")
+    fun dispose(canvasId: String) {
+        SigilEffectHydrator.disposeHydrator(canvasId)
+    }
+    
+    /**
+     * Check if a canvas is currently hydrated.
+     */
+    @JsName("isHydrated")
+    fun isHydrated(canvasId: String): Boolean {
+        return SigilEffectHydrator.isHydrated(canvasId)
     }
     
     /**
