@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.2.8.10] - 2025-12-14
+
+### Fixed
+
+- **Race condition in hydration guards**: Fixed race condition where concurrent `hydrateFromDOM()` calls could both pass guards and create two GPUDevice instances
+  - Moved all guard checks to run **synchronously** before `scope.launch`
+  - Added `hydrationInProgress` set to block concurrent hydrations immediately
+  - The `hydratedCanvases` set now tracks completed hydrations; `hydrationInProgress` tracks in-flight ones
+
+### Added
+
+- **Hydration guard unit tests**: New `HydrationGuardLogicTest` with 9 tests verifying:
+  - Single and double hydration blocking
+  - Race condition prevention (concurrent calls blocked by in-progress check)
+  - Force reinitialization bypass
+  - Failed hydration cleanup and retry
+  - Multiple canvas independence
+
 ## [0.2.8.9] - 2025-12-14
 
 ### Fixed

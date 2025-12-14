@@ -683,7 +683,9 @@ class SigilEffectHydrator(
     
     companion object {
         // Track hydrated canvases to prevent double initialization
+        // Uses a set for O(1) lookup - checked synchronously before launching coroutine
         private val hydratedCanvases = mutableSetOf<String>()
+        private val hydrationInProgress = mutableSetOf<String>()
         
         /**
          * Hydrate effects from DOM data.
@@ -695,39 +697,54 @@ class SigilEffectHydrator(
          * @param forceReinitialize If true, disposes existing hydrator and reinitializes (for hot reload)
          */
         fun hydrateFromDOM(canvasId: String, forceReinitialize: Boolean = false) {
-            scope.launch {
-                val canvas = document.getElementById(canvasId) as? HTMLCanvasElement
-                
-                if (canvas == null) {
-                    console.error("SigilEffect: Canvas not found for $canvasId")
-                    return@launch
-                }
-                
-                // Check if already hydrated
-                val existingHydrator = canvas.asDynamic().__sigilHydrator as? SigilEffectHydrator
+            // SYNCHRONOUS checks BEFORE launching coroutine to prevent race conditions
+            
+            // Check if already fully hydrated
+            if (canvasId in hydratedCanvases && !forceReinitialize) {
+                console.warn("SigilEffect: Canvas $canvasId already hydrated, skipping (use forceReinitialize=true to reinitialize)")
+                return
+            }
+            
+            // Check if hydration is already in progress (prevents concurrent hydrations)
+            if (canvasId in hydrationInProgress && !forceReinitialize) {
+                console.warn("SigilEffect: Canvas $canvasId hydration already in progress, skipping")
+                return
+            }
+            
+            // Check DOM marker (for cross-script detection)
+            val canvas = document.getElementById(canvasId) as? HTMLCanvasElement
+            if (canvas != null && canvas.getAttribute("data-sigil-hydrated") == "true" && !forceReinitialize) {
+                console.warn("SigilEffect: Canvas $canvasId already hydrated (DOM marker), skipping")
+                hydratedCanvases.add(canvasId) // Sync our tracking
+                return
+            }
+            
+            // Handle force reinitialization
+            if (forceReinitialize) {
+                val existingHydrator = canvas?.asDynamic()?.__sigilHydrator as? SigilEffectHydrator
                 if (existingHydrator != null) {
-                    if (!forceReinitialize) {
-                        console.warn("SigilEffect: Canvas $canvasId already hydrated, skipping (use forceReinitialize=true to reinitialize)")
-                        return@launch
-                    }
-                    // Clean up existing hydrator for hot reload
                     console.log("SigilEffect: Reinitializing $canvasId (hot reload)")
                     existingHydrator.dispose()
-                    hydratedCanvases.remove(canvasId)
-                    canvas.removeAttribute("data-sigil-hydrated")
                 }
+                hydratedCanvases.remove(canvasId)
+                hydrationInProgress.remove(canvasId)
+                canvas?.removeAttribute("data-sigil-hydrated")
+            }
+            
+            // Mark as in-progress SYNCHRONOUSLY before launching
+            hydrationInProgress.add(canvasId)
+            
+            scope.launch {
+                val canvasElement = document.getElementById(canvasId) as? HTMLCanvasElement
                 
-                // Secondary check using DOM attribute (for cross-script detection)
-                if (canvas.getAttribute("data-sigil-hydrated") == "true" && !forceReinitialize) {
-                    console.warn("SigilEffect: Canvas $canvasId already hydrated (DOM marker), skipping")
+                if (canvasElement == null) {
+                    console.error("SigilEffect: Canvas not found for $canvasId")
+                    hydrationInProgress.remove(canvasId)
                     return@launch
                 }
                 
-                // Mark as hydrating
-                hydratedCanvases.add(canvasId)
-                
                 // Get effect data from the data-sigil-effects attribute
-                val effectJson = canvas.getAttribute("data-sigil-effects")
+                val effectJson = canvasElement.getAttribute("data-sigil-effects")
                     ?.replace("&#39;", "'")
                     ?.replace("&lt;", "<")
                     ?.replace("&gt;", ">")
@@ -735,16 +752,16 @@ class SigilEffectHydrator(
                 
                 if (effectJson == null || !effectJson.startsWith("{")) {
                     console.error("SigilEffect: No valid effect data found in data-sigil-effects attribute for $canvasId")
-                    hydratedCanvases.remove(canvasId)
+                    hydrationInProgress.remove(canvasId)
                     return@launch
                 }
                 
-                val configJson = canvas.getAttribute("data-sigil-config")
+                val configJson = canvasElement.getAttribute("data-sigil-config")
                     ?.replace("&#39;", "'")
                     ?.replace("&lt;", "<")
                     ?.replace("&gt;", ">")
                     ?.replace("&amp;", "&") ?: "{}"
-                val interactionsJson = canvas.getAttribute("data-sigil-interactions")
+                val interactionsJson = canvasElement.getAttribute("data-sigil-interactions")
                     ?.replace("&#39;", "'")
                     ?.replace("&lt;", "<")
                     ?.replace("&gt;", ">")
@@ -755,26 +772,30 @@ class SigilEffectHydrator(
                     val config = SigilJson.decodeFromString<SigilCanvasConfig>(configJson)
                     val interactions = SigilJson.decodeFromString<InteractionConfig>(interactionsJson)
                     
-                    val hydrator = SigilEffectHydrator(canvas, composerData, config, interactions)
+                    val hydrator = SigilEffectHydrator(canvasElement, composerData, config, interactions)
                     if (hydrator.initialize()) {
                         hydrator.startRenderLoop()
                         
                         // Store hydrator reference on canvas for cleanup and hot reload
-                        canvas.asDynamic().__sigilHydrator = hydrator
+                        canvasElement.asDynamic().__sigilHydrator = hydrator
                         
                         // Mark as hydrated in DOM for cross-script detection
-                        canvas.setAttribute("data-sigil-hydrated", "true")
+                        canvasElement.setAttribute("data-sigil-hydrated", "true")
+                        
+                        // Move from in-progress to completed
+                        hydrationInProgress.remove(canvasId)
+                        hydratedCanvases.add(canvasId)
                         
                         // Setup resize observer using Kotlin callback
-                        setupResizeObserver(canvas) { width, height ->
+                        setupResizeObserver(canvasElement) { width, height ->
                             hydrator.resize(width.toInt(), height.toInt())
                         }
                     } else {
-                        hydratedCanvases.remove(canvasId)
+                        hydrationInProgress.remove(canvasId)
                     }
                 } catch (e: Exception) {
                     console.error("SigilEffect: Failed to hydrate $canvasId: ${e.message}")
-                    hydratedCanvases.remove(canvasId)
+                    hydrationInProgress.remove(canvasId)
                 }
             }
         }
@@ -797,10 +818,11 @@ class SigilEffectHydrator(
             canvas.asDynamic().__sigilHydrator = null
             canvas.removeAttribute("data-sigil-hydrated")
             hydratedCanvases.remove(canvasId)
+            hydrationInProgress.remove(canvasId)
         }
         
         /**
-         * Check if a canvas is currently hydrated.
+         * Check if a canvas is currently hydrated or hydration is in progress.
          */
         fun isHydrated(canvasId: String): Boolean {
             return canvasId in hydratedCanvases
