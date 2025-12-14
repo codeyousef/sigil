@@ -502,8 +502,11 @@ class SigilEffectHydrator(
                     set("mouseDown", if (effectData.enableMouseInteraction && isMouseDown) 1f else 0f)
                 }
                 
-                // Effect-specific uniforms
+                // Effect-specific uniforms (skip standard uniforms already set above)
+                val standardUniforms = setOf("time", "deltaTime", "resolution", "mouse", "mouseDown", "scroll", "_padding")
                 effectData.uniforms.forEach { (name, value) ->
+                    // Skip standard uniforms - they are already set with animated values above
+                    if (name in standardUniforms) return@forEach
                     if (!declared.contains(name)) {
                         val key = "${effectData.id}:$name"
                         if (loggedMissingUniforms.add(key)) {
