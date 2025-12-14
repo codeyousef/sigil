@@ -165,18 +165,22 @@ class WebGLEffectHydrator(
                     set("mouseDown", 0f)
                 }
                 
-                // Effect-specific uniforms
-                effectData.uniforms.entries.sortedBy { it.key }.forEach { (name, value) ->
-                    when (value) {
-                        is UniformValue.FloatValue -> set(name, value.value)
-                        is UniformValue.IntValue -> set(name, value.value.toFloat())
-                        is UniformValue.Vec2Value -> set(name, value.value.x, value.value.y)
-                        is UniformValue.Vec3Value -> set(name, value.value.x, value.value.y, value.value.z)
-                        is UniformValue.Vec4Value -> set(name, value.value.x, value.value.y, value.value.z, value.value.w)
-                        is UniformValue.Mat3Value -> setMat3(name, value.values.toFloatArray())
-                        is UniformValue.Mat4Value -> setMat4(name, value.values.toFloatArray())
+                // Effect-specific uniforms (skip standard uniforms that are already set above)
+                val standardUniforms = setOf("time", "resolution", "mouse", "mouseDown", "deltaTime")
+                effectData.uniforms.entries
+                    .filter { it.key !in standardUniforms }
+                    .sortedBy { it.key }
+                    .forEach { (name, value) ->
+                        when (value) {
+                            is UniformValue.FloatValue -> set(name, value.value)
+                            is UniformValue.IntValue -> set(name, value.value.toFloat())
+                            is UniformValue.Vec2Value -> set(name, value.value.x, value.value.y)
+                            is UniformValue.Vec3Value -> set(name, value.value.x, value.value.y, value.value.z)
+                            is UniformValue.Vec4Value -> set(name, value.value.x, value.value.y, value.value.z, value.value.w)
+                            is UniformValue.Mat3Value -> setMat3(name, value.values.toFloatArray())
+                            is UniformValue.Mat4Value -> setMat4(name, value.values.toFloatArray())
+                        }
                     }
-                }
             }
         }
     }

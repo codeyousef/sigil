@@ -1,6 +1,6 @@
 [versions]
 kotlin = "2.2.21"
-materia = "0.3.4.4"
+materia = "0.3.4.3"
 summon = "0.5.8.0"
 compose = "1.7.3"
 serialization = "1.9.0"
