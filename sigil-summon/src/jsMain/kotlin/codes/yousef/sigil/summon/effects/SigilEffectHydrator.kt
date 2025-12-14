@@ -5,8 +5,6 @@ import codes.yousef.sigil.schema.effects.*
 import io.materia.effects.fullScreenEffect
 import io.materia.effects.uniformBlock
 import io.materia.effects.BlendMode as MateriaBlendMode
-import io.materia.effects.RenderLoop
-import io.materia.effects.FrameInfo
 import io.materia.effects.FullScreenEffectPass
 import io.materia.renderer.webgpu.WebGPUEffectComposer
 import kotlinx.browser.document
@@ -82,7 +80,6 @@ class SigilEffectHydrator(
     private val effectPasses = mutableMapOf<String, FullScreenEffectPass>()
     private val declaredUniformsByEffectId = mutableMapOf<String, Set<String>>()
     private val loggedMissingUniforms = mutableSetOf<String>()
-    private var renderLoop: RenderLoop? = null
     
     // WebGL fallback hydrator
     private var webGLHydrator: WebGLEffectHydrator? = null
@@ -93,6 +90,7 @@ class SigilEffectHydrator(
     private var isMouseDown = false
 
     private var lastFrameTotalTime = 0f
+    private var startTime: Double = 0.0  // Track start time for animation
     
     /**
      * Initialize the effect hydrator.
@@ -231,15 +229,9 @@ class SigilEffectHydrator(
                 }
             }
             
-            // Create render loop for uniform updates
-            renderLoop = RenderLoop { frame: FrameInfo ->
-                try {
-                    updateEffects(frame)
-                } catch (t: Throwable) {
-                    console.error("SigilEffectHydrator: WebGPU frame update failed: ${t.message}")
-                    console.error(t)
-                }
-            }
+            // Note: We manage timing ourselves in the render loop (startWebGPURenderLoop)
+            // to ensure uniform updates are synchronized with rendering.
+            // The RenderLoop from Materia is not used to avoid two separate RAF loops.
             
             // Setup interaction listeners
             if (hasMouseInteraction()) {
@@ -483,12 +475,9 @@ class SigilEffectHydrator(
     
     /**
      * Update all effects with current frame and interaction data.
+     * Called from our unified render loop with explicit time values.
      */
-    private fun updateEffects(frame: FrameInfo) {
-        val totalTime = frame.totalTime
-        val deltaTime = (totalTime - lastFrameTotalTime).coerceAtLeast(0f)
-        lastFrameTotalTime = totalTime
-
+    private fun updateEffectsWithTime(totalTime: Float, deltaTime: Float) {
         composerData.effects.forEach { effectData ->
             val pass = effectPasses[effectData.id] ?: return@forEach
             val declared = declaredUniformsByEffectId[effectData.id].orEmpty()
@@ -592,12 +581,25 @@ class SigilEffectHydrator(
      */
     private fun startWebGPURenderLoop() {
         running = true
-        renderLoop?.start()
+        startTime = 0.0
         
-        fun animate() {
+        fun animate(currentTimeMs: Double) {
             if (!running) return
             
+            // Initialize start time on first frame
+            if (startTime == 0.0) {
+                startTime = currentTimeMs
+            }
+            
             try {
+                // Calculate frame timing (convert ms to seconds)
+                val totalTimeSeconds = ((currentTimeMs - startTime) / 1000.0).toFloat()
+                val deltaTime = (totalTimeSeconds - lastFrameTotalTime).coerceAtLeast(0f)
+                lastFrameTotalTime = totalTimeSeconds
+                
+                // Update uniforms BEFORE rendering (critical for animation!)
+                updateEffectsWithTime(totalTimeSeconds, deltaTime)
+                
                 // Get current swapchain texture from canvas context
                 val currentTexture = webGPUContext.getCurrentTexture()
                 if (currentTexture != null && currentTexture != undefined) {
@@ -611,10 +613,10 @@ class SigilEffectHydrator(
                 console.error("SigilEffectHydrator: WebGPU render error: $e")
             }
             
-            animationFrameId = window.requestAnimationFrame { animate() }
+            animationFrameId = window.requestAnimationFrame { ts -> animate(ts) }
         }
         
-        animate()
+        window.requestAnimationFrame { ts -> animate(ts) }
         console.log("SigilEffectHydrator: WebGPU render loop started with ${effectPasses.size} passes")
     }
     
@@ -623,7 +625,6 @@ class SigilEffectHydrator(
      */
     fun stop() {
         running = false
-        renderLoop?.stop()
         webGLHydrator?.stop()
         
         if (animationFrameId != 0) {

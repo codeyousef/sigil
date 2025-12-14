@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.2.8.11] - 2025-12-14
+
+### Fixed
+
+- **Time uniform not updating in WebGPU render loop**: Fixed animation by unifying the render loop
+  - Previously had TWO separate `requestAnimationFrame` loops: Materia's `RenderLoop` for uniform updates and our `animate()` for rendering
+  - Uniform updates and rendering were desynchronized, causing `uniforms.time` to stay at 0
+  - Now uses a single unified render loop that:
+    1. Calculates elapsed time from `requestAnimationFrame` timestamp
+    2. Updates uniforms with current time/deltaTime BEFORE rendering
+    3. Renders the frame
+  - Removed unused `RenderLoop` import and field
+
 ## [0.2.8.10] - 2025-12-14
 
 ### Fixed
