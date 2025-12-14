@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.2.8.8] - 2025-12-14
+
+### Fixed
+
+- **WebGPU context configuration**: Fixed `asDynamic is not a function` error by properly casting the WebGPU canvas context to `dynamic` before calling `configure()`
+
 ## [0.2.8.7] - 2025-12-13
 
 ### Fixed

@@ -207,7 +207,9 @@ class SigilEffectHydrator(
             }
             
             val format = gpu.getPreferredCanvasFormat()
-            context.asDynamic().configure(js("{device: device, format: format, alphaMode: 'premultiplied'}"))
+            // Cast context to dynamic first, then call configure
+            val gpuContext: dynamic = context
+            gpuContext.configure(js("{device: device, format: format, alphaMode: 'premultiplied'}"))
             
             // Store device and context for render loop
             webGPUDevice = device
