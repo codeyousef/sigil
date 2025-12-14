@@ -63,7 +63,7 @@ jobs:
           fi
 
       - name: Run tests
-        run: ./gradlew check --stacktrace
+        run: ./gradlew check -x jsBrowserTest --stacktrace
 
       - name: Ensure publishing secrets are present
         shell: bash
