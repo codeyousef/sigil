@@ -1,6 +1,11 @@
 # Changelog
 
-## [0.2.8.19] - 2025-12-15
+## [0.2.9.0] - 2025-12-15
+
+### Changed
+
+- **Materia dependency**: Updated from 0.3.4.5 to 0.3.4.6
+  - Includes fix for WebGL uniform name mismatch (plain names without `u_` prefix)
 
 ### Fixed
 
