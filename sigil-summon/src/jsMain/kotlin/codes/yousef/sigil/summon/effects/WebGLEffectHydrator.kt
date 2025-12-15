@@ -106,7 +106,10 @@ class WebGLEffectHydrator(
     private fun createEffectPass(effectData: ShaderEffectData): WebGLEffectPass? {
         val glslShader = effectData.glslFragmentShader ?: return null
         
-        return WebGLEffectPass.create {
+        console.log("WebGLEffectHydrator: Creating effect pass for ${effectData.id}")
+        console.log("WebGLEffectHydrator: GLSL shader length: ${glslShader.length}")
+        
+        val pass = WebGLEffectPass.create {
             fragmentShader = glslShader
             
             // Map blend modes
@@ -125,22 +128,36 @@ class WebGLEffectHydrator(
                 vec2("resolution")
                 vec2("mouse")
                 float("mouseDown")
+                float("deltaTime")
                 
-                // Effect-specific uniforms
-                effectData.uniforms.entries.sortedBy { it.key }.forEach { (name, value) ->
-                    when (value) {
-                        is UniformValue.FloatValue -> float(name)
-                        is UniformValue.IntValue -> float(name)
-                        is UniformValue.Vec2Value -> vec2(name)
-                        is UniformValue.Vec3Value -> vec3(name)
-                        is UniformValue.Vec4Value -> vec4(name)
-                        is UniformValue.Mat3Value -> mat3(name)
-                        is UniformValue.Mat4Value -> mat4(name)
+                // Effect-specific uniforms (skip standard uniforms to avoid duplicates)
+                val standardUniforms = setOf("time", "resolution", "mouse", "mouseDown", "deltaTime")
+                effectData.uniforms.entries
+                    .filter { it.key !in standardUniforms }
+                    .sortedBy { it.key }
+                    .forEach { (name, value) ->
+                        when (value) {
+                            is UniformValue.FloatValue -> float(name)
+                            is UniformValue.IntValue -> float(name)
+                            is UniformValue.Vec2Value -> vec2(name)
+                            is UniformValue.Vec3Value -> vec3(name)
+                            is UniformValue.Vec4Value -> vec4(name)
+                            is UniformValue.Mat3Value -> mat3(name)
+                            is UniformValue.Mat4Value -> mat4(name)
+                        }
                     }
-                }
             }
         }
+        
+        console.log("WebGLEffectHydrator: Pass created, uniforms layout size: ${pass.effect.uniforms.layout.size}")
+        pass.effect.uniforms.layout.forEach { field ->
+            console.log("WebGLEffectHydrator:   Uniform '${field.name}' type=${field.type}")
+        }
+        
+        return pass
     }
+    
+    private var debugLoggedOnce = false
     
     /**
      * Update all effects with current frame data.
@@ -152,6 +169,13 @@ class WebGLEffectHydrator(
         
         composerData.effects.forEach { effectData ->
             val pass = effectPasses[effectData.id] ?: return@forEach
+            
+            if (!debugLoggedOnce) {
+                console.log("WebGLEffectHydrator: First updateEffects call")
+                console.log("WebGLEffectHydrator: pass.effect.uniforms.layout.size = ${pass.effect.uniforms.layout.size}")
+                console.log("WebGLEffectHydrator: pass.effect.uniformBuffer.size = ${pass.effect.uniformBuffer.size}")
+                debugLoggedOnce = true
+            }
             
             pass.updateUniforms {
                 set("time", totalTime * effectData.timeScale)

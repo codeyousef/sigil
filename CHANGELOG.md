@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.2.8.19] - 2025-12-15
+
+### Fixed
+
+- **WebGL duplicate uniforms causing black screen**: Fixed WebGL renderer creating duplicate uniform definitions
+  - Standard uniforms (time, resolution, mouse, mouseDown, deltaTime) were defined twice: once explicitly and once from `effectData.uniforms`
+  - The duplicate uniforms caused correct values to be overwritten with zeros on each frame
+  - Added filter to skip standard uniforms when iterating `effectData.uniforms` in the builder block
+  - Also added missing `deltaTime` to standard uniform definitions
+
 ## [0.2.8.11] - 2025-12-14
 
 ### Fixed
