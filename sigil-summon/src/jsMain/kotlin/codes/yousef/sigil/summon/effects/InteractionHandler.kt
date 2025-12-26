@@ -20,7 +20,8 @@ external class ResizeObserver(callback: (Array<dynamic>) -> Unit) {
  */
 class InteractionHandler(
     private val canvas: HTMLCanvasElement,
-    private val config: InteractionConfig
+    private val config: InteractionConfig,
+    private val normalizeCoordinates: Boolean = false
 ) {
     var mouseX = 0f
         private set
@@ -35,13 +36,17 @@ class InteractionHandler(
      * Setup mouse listeners on the canvas.
      */
     fun setupMouseListeners() {
-        if (!config.enableMouseMove && !config.enableMouseClick) return
+        if (!config.enableMouseMove && !config.enableMouseClick && !config.enableTouch) return
 
         canvas.addEventListener("mousemove", { event ->
             val mouseEvent = event as MouseEvent
             val rect = canvas.getBoundingClientRect()
-            mouseX = (mouseEvent.clientX - rect.left).toFloat()
-            mouseY = (mouseEvent.clientY - rect.top).toFloat()
+            updatePointer(
+                x = (mouseEvent.clientX - rect.left).toFloat(),
+                y = (mouseEvent.clientY - rect.top).toFloat(),
+                rectWidth = rect.width,
+                rectHeight = rect.height
+            )
         })
 
         canvas.addEventListener("mousedown", {
@@ -60,6 +65,34 @@ class InteractionHandler(
         window.addEventListener("mouseup", {
             isMouseDown = false
         })
+
+        if (config.enableTouch) {
+            canvas.addEventListener("touchmove", { event ->
+                val touches = event.asDynamic().touches
+                if (touches != undefined && touches != null && touches.length > 0) {
+                    val touch = touches[0]
+                    val rect = canvas.getBoundingClientRect()
+                    updatePointer(
+                        x = (touch.clientX - rect.left).toFloat(),
+                        y = (touch.clientY - rect.top).toFloat(),
+                        rectWidth = rect.width,
+                        rectHeight = rect.height
+                    )
+                }
+            })
+
+            canvas.addEventListener("touchstart", {
+                isMouseDown = true
+            })
+
+            canvas.addEventListener("touchend", {
+                isMouseDown = false
+            })
+
+            canvas.addEventListener("touchcancel", {
+                isMouseDown = false
+            })
+        }
     }
 
     /**
@@ -83,5 +116,15 @@ class InteractionHandler(
     fun dispose() {
         resizeObserver?.disconnect()
         resizeObserver = null
+    }
+
+    private fun updatePointer(x: Float, y: Float, rectWidth: Double, rectHeight: Double) {
+        if (normalizeCoordinates && rectWidth != 0.0 && rectHeight != 0.0) {
+            mouseX = (x / rectWidth).toFloat()
+            mouseY = (y / rectHeight).toFloat()
+        } else {
+            mouseX = x
+            mouseY = y
+        }
     }
 }

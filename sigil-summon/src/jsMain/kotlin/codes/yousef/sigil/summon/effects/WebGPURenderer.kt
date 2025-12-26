@@ -22,11 +22,7 @@ class WebGPURenderer(
     private val effectPasses = mutableMapOf<String, FullScreenEffectPass>()
     private val declaredUniformsByEffectId = mutableMapOf<String, Set<String>>()
     private val loggedMissingUniforms = mutableSetOf<String>()
-    
-    private var running = false
-    private var animationFrameId: Int = 0
-    private var startTime: Double = 0.0
-    private var lastFrameTotalTime = 0f
+    private val renderLoop = RenderLoop()
 
     /**
      * Initialize WebGPU rendering.
@@ -99,50 +95,22 @@ class WebGPURenderer(
      * Start the render loop.
      */
     fun startRenderLoop() {
-        running = true
-        startTime = 0.0
-        
-        fun animate(currentTimeMs: Double) {
-            if (!running) return
-            
-            // Initialize start time on first frame
-            if (startTime == 0.0) {
-                startTime = currentTimeMs
-            }
-            
+        renderLoop.start { totalTimeSeconds, deltaTimeSeconds ->
             try {
-                // Calculate frame timing (convert ms to seconds)
-                val totalTimeSeconds = ((currentTimeMs - startTime) / 1000.0).toFloat()
-                val deltaTime = (totalTimeSeconds - lastFrameTotalTime).coerceAtLeast(0f)
-                
-                // Update uniforms
-                updateEffectsWithTime(totalTimeSeconds, deltaTime)
-                
-                // Render frame
+                updateEffectsWithTime(totalTimeSeconds.toFloat(), deltaTimeSeconds.toFloat())
                 webGPUComposer?.render(webGPUContext.getCurrentTexture().createView())
-                
-                lastFrameTotalTime = totalTimeSeconds
             } catch (e: Exception) {
                 console.error("WebGPURenderer: Error in render loop: ${e.message}")
-                running = false
-                return
+                stopRenderLoop()
             }
-            
-            animationFrameId = kotlinx.browser.window.requestAnimationFrame(::animate)
         }
-        
-        animationFrameId = kotlinx.browser.window.requestAnimationFrame(::animate)
     }
     
     /**
      * Stop the render loop.
      */
     fun stopRenderLoop() {
-        running = false
-        if (animationFrameId != 0) {
-            kotlinx.browser.window.cancelAnimationFrame(animationFrameId)
-            animationFrameId = 0
-        }
+        renderLoop.stop()
     }
     
     /**
@@ -183,7 +151,6 @@ class WebGPURenderer(
                 // Effect-specific uniforms (skip standard uniforms already set above)
                 val standardUniforms = setOf("time", "deltaTime", "resolution", "mouse", "mouseDown", "scroll", "_padding")
                 effectData.uniforms.forEach { (name, value) ->
-                    // Skip standard uniforms - they are already set with animated values above
                     if (name in standardUniforms) return@forEach
                     if (!declared.contains(name)) {
                         val key = "${effectData.id}:$name"
@@ -192,15 +159,17 @@ class WebGPURenderer(
                         }
                         return@forEach
                     }
-                    when (value) {
-                        is UniformValue.FloatValue -> set(name, value.value)
-                        is UniformValue.IntValue -> set(name, value.value.toFloat())
-                        is UniformValue.Vec2Value -> set(name, value.value.x, value.value.y)
-                        is UniformValue.Vec3Value -> set(name, value.value.x, value.value.y, value.value.z)
-                        is UniformValue.Vec4Value -> set(name, value.value.x, value.value.y, value.value.z, value.value.w)
-                        is UniformValue.Mat3Value -> setMat3(name, value.values.toFloatArray())
-                        is UniformValue.Mat4Value -> setMat4(name, value.values.toFloatArray())
-                    }
+
+                    applyUniformValue(
+                        name = name,
+                        value = value,
+                        setFloat = { uniform, v -> set(uniform, v) },
+                        setVec2 = { uniform, x, y -> set(uniform, x, y) },
+                        setVec3 = { uniform, x, y, z -> set(uniform, x, y, z) },
+                        setVec4 = { uniform, x, y, z, w -> set(uniform, x, y, z, w) },
+                        setMat3 = { uniform, mat -> setMat3(uniform, mat) },
+                        setMat4 = { uniform, mat -> setMat4(uniform, mat) }
+                    )
                 }
             }
         }

@@ -6,12 +6,10 @@ import io.materia.renderer.webgl.WebGLEffectPass
 import io.materia.renderer.webgl.WebGLEffectComposer
 import io.materia.effects.BlendMode as MateriaBlendMode
 import kotlinx.browser.document
-import kotlinx.browser.window
 import kotlinx.coroutines.MainScope
 import kotlinx.coroutines.launch
 import org.w3c.dom.HTMLCanvasElement
 import org.khronos.webgl.WebGLRenderingContext
-import org.w3c.dom.events.MouseEvent
 
 private val scope = MainScope()
 
@@ -27,22 +25,17 @@ class WebGLEffectHydrator(
     private val config: SigilCanvasConfig,
     private val interactions: InteractionConfig
 ) {
-    private var running = false
-    private var animationFrameId: Int = 0
+    private val renderLoop = RenderLoop()
+    private val interactionHandler = InteractionHandler(
+        canvas = canvas,
+        config = interactions,
+        normalizeCoordinates = true
+    )
     
     // WebGL context and effect pipeline
     private var gl: WebGLRenderingContext? = null
     private var effectComposer: WebGLEffectComposer? = null
     private val effectPasses = mutableMapOf<String, WebGLEffectPass>()
-    
-    // Time tracking
-    private var startTime: Double = 0.0
-    private var lastFrameTime: Double = 0.0
-    
-    // Interaction state
-    private var mouseX = 0f
-    private var mouseY = 0f
-    private var isMouseDown = false
     
     /**
      * Initialize the WebGL effect hydrator.
@@ -86,11 +79,11 @@ class WebGLEffectHydrator(
             
             // Setup interaction listeners
             if (hasMouseInteraction()) {
-                setupMouseListeners()
+                interactionHandler.setupMouseListeners()
             }
-            
-            startTime = window.performance.now()
-            lastFrameTime = startTime
+            interactionHandler.setupResizeObserver(canvas) { width, height ->
+                resize(width.toInt(), height.toInt())
+            }
             
             console.log("WebGLEffectHydrator: Initialized with $passCount effect passes")
             return true
@@ -162,10 +155,9 @@ class WebGLEffectHydrator(
     /**
      * Update all effects with current frame data.
      */
-    private fun updateEffects(currentTime: Double) {
-        val totalTime = ((currentTime - startTime) / 1000.0).toFloat()
-        val deltaTime = ((currentTime - lastFrameTime) / 1000.0).toFloat()
-        lastFrameTime = currentTime
+    private fun updateEffects(totalTimeSeconds: Double, deltaTimeSeconds: Double) {
+        val totalTime = totalTimeSeconds.toFloat()
+        val deltaTime = deltaTimeSeconds.toFloat()
         
         composerData.effects.forEach { effectData ->
             val pass = effectPasses[effectData.id] ?: return@forEach
@@ -179,31 +171,32 @@ class WebGLEffectHydrator(
             
             pass.updateUniforms {
                 set("time", totalTime * effectData.timeScale)
+                set("deltaTime", deltaTime)
                 set("resolution", canvas.width.toFloat(), canvas.height.toFloat())
                 
                 if (effectData.enableMouseInteraction) {
-                    set("mouse", mouseX, mouseY)
-                    set("mouseDown", if (isMouseDown) 1f else 0f)
+                    set("mouse", interactionHandler.mouseX, interactionHandler.mouseY)
+                    set("mouseDown", if (interactionHandler.isMouseDown) 1f else 0f)
                 } else {
                     set("mouse", 0.5f, 0.5f)
                     set("mouseDown", 0f)
                 }
                 
-                // Effect-specific uniforms (skip standard uniforms that are already set above)
-                val standardUniforms = setOf("time", "resolution", "mouse", "mouseDown", "deltaTime")
+                val standardUniforms = setOf("time", "deltaTime", "resolution", "mouse", "mouseDown")
                 effectData.uniforms.entries
                     .filter { it.key !in standardUniforms }
                     .sortedBy { it.key }
                     .forEach { (name, value) ->
-                        when (value) {
-                            is UniformValue.FloatValue -> set(name, value.value)
-                            is UniformValue.IntValue -> set(name, value.value.toFloat())
-                            is UniformValue.Vec2Value -> set(name, value.value.x, value.value.y)
-                            is UniformValue.Vec3Value -> set(name, value.value.x, value.value.y, value.value.z)
-                            is UniformValue.Vec4Value -> set(name, value.value.x, value.value.y, value.value.z, value.value.w)
-                            is UniformValue.Mat3Value -> setMat3(name, value.values.toFloatArray())
-                            is UniformValue.Mat4Value -> setMat4(name, value.values.toFloatArray())
-                        }
+                        applyUniformValue(
+                            name = name,
+                            value = value,
+                            setFloat = { uniform, v -> set(uniform, v) },
+                            setVec2 = { uniform, x, y -> set(uniform, x, y) },
+                            setVec3 = { uniform, x, y, z -> set(uniform, x, y, z) },
+                            setVec4 = { uniform, x, y, z, w -> set(uniform, x, y, z, w) },
+                            setMat3 = { uniform, mat -> setMat3(uniform, mat) },
+                            setMat4 = { uniform, mat -> setMat4(uniform, mat) }
+                        )
                     }
             }
         }
@@ -218,51 +211,13 @@ class WebGLEffectHydrator(
     }
     
     /**
-     * Setup mouse event listeners.
-     */
-    private fun setupMouseListeners() {
-        canvas.addEventListener("mousemove", { event ->
-            val e = event as MouseEvent
-            val rect = canvas.getBoundingClientRect()
-            mouseX = ((e.clientX - rect.left) / rect.width).toFloat()
-            mouseY = ((e.clientY - rect.top) / rect.height).toFloat()
-        })
-        
-        canvas.addEventListener("mousedown", { isMouseDown = true })
-        canvas.addEventListener("mouseup", { isMouseDown = false })
-        canvas.addEventListener("mouseleave", { isMouseDown = false })
-        
-        // Touch support
-        canvas.addEventListener("touchmove", { event ->
-            val e = event.asDynamic()
-            if (e.touches.length > 0) {
-                val touch = e.touches[0]
-                val rect = canvas.getBoundingClientRect()
-                mouseX = ((touch.clientX - rect.left) / rect.width).toFloat()
-                mouseY = ((touch.clientY - rect.top) / rect.height).toFloat()
-            }
-        })
-        
-        canvas.addEventListener("touchstart", { isMouseDown = true })
-        canvas.addEventListener("touchend", { isMouseDown = false })
-    }
-    
-    /**
      * Start the render loop.
      */
     fun startRenderLoop() {
-        running = true
-        
-        fun animate(currentTime: Double) {
-            if (!running) return
-            
-            updateEffects(currentTime)
+        renderLoop.start { totalTime, deltaTime ->
+            updateEffects(totalTime, deltaTime)
             effectComposer?.render()
-            
-            animationFrameId = window.requestAnimationFrame { animate(it) }
         }
-        
-        animationFrameId = window.requestAnimationFrame { animate(it) }
         console.log("WebGLEffectHydrator: Render loop started with ${effectPasses.size} passes")
     }
     
@@ -270,12 +225,7 @@ class WebGLEffectHydrator(
      * Stop the render loop.
      */
     fun stop() {
-        running = false
-        
-        if (animationFrameId != 0) {
-            window.cancelAnimationFrame(animationFrameId)
-            animationFrameId = 0
-        }
+        renderLoop.stop()
     }
     
     /**
@@ -358,10 +308,6 @@ class WebGLEffectHydrator(
                     val hydrator = WebGLEffectHydrator(canvas, composerData, config, interactions)
                     if (hydrator.initialize()) {
                         hydrator.startRenderLoop()
-                        
-                        // Setup resize observer
-                        val resizeObserver = js("new ResizeObserver(function(entries) { entries.forEach(function(entry) { hydrator.resize(entry.contentRect.width, entry.contentRect.height); }); })")
-                        resizeObserver.observe(canvas)
                     }
                 } catch (e: Exception) {
                     console.error("WebGLEffect: Failed to hydrate $canvasId: ${e.message}")
