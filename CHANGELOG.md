@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.2.9.1] - 2025-12-26
+
+### Added
+
+- Shared utilities for renderers: `RenderLoop` (requestAnimationFrame wrapper) and `UniformUpdater` (uniform mapping helper)
+- Sigil logo asset referenced in README header
+
+### Changed
+
+- WebGPU and WebGL effect hydrators now reuse a common interaction handler (mouse/touch, normalized coords) and the shared render loop
+- Uniform setup is centralized across renderers, aligning standard uniforms (`time`, `deltaTime`, `resolution`, `mouse`, `mouseDown`)
+- Documentation dependency snippets updated to version 0.2.9.1
+
 ## [0.2.9.0] - 2025-12-15
 
 ### Changed
