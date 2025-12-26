@@ -2,45 +2,13 @@ package codes.yousef.sigil.summon.effects
 
 import codes.yousef.sigil.schema.SigilJson
 import codes.yousef.sigil.schema.effects.*
-import io.materia.effects.fullScreenEffect
-import io.materia.effects.uniformBlock
-import io.materia.effects.BlendMode as MateriaBlendMode
-import io.materia.effects.FullScreenEffectPass
-import io.materia.renderer.webgpu.WebGPUEffectComposer
 import kotlinx.browser.document
 import kotlinx.browser.window
 import kotlinx.coroutines.MainScope
-import kotlinx.coroutines.await
 import kotlinx.coroutines.launch
-import org.w3c.dom.Element
 import org.w3c.dom.HTMLCanvasElement
-import org.w3c.dom.events.MouseEvent
 
 private val scope = MainScope()
-
-/**
- * External declaration for ResizeObserver.
- */
-external class ResizeObserver(callback: (Array<dynamic>) -> Unit) {
-    fun observe(target: Element)
-    fun unobserve(target: Element)
-    fun disconnect()
-}
-
-/**
- * Setup a ResizeObserver on an element with a Kotlin callback.
- */
-private fun setupResizeObserver(element: Element, onResize: (Double, Double) -> Unit) {
-    val observer = ResizeObserver { entries ->
-        entries.forEach { entry ->
-            val rect = entry.contentRect
-            val width = rect.width as Double
-            val height = rect.height as Double
-            onResize(width, height)
-        }
-    }
-    observer.observe(element)
-}
 
 /**
  * Renderer type detected or selected for effect rendering.
@@ -69,28 +37,14 @@ class SigilEffectHydrator(
     private val config: SigilCanvasConfig,
     private val interactions: InteractionConfig
 ) {
-    private var running = false
-    private var animationFrameId: Int = 0
     private var rendererType: RendererType = RendererType.NONE
     
-    // Materia WebGPU effect pipeline components
-    private var webGPUComposer: WebGPUEffectComposer? = null
-    private var webGPUDevice: dynamic = null
-    private var webGPUContext: dynamic = null
-    private val effectPasses = mutableMapOf<String, FullScreenEffectPass>()
-    private val declaredUniformsByEffectId = mutableMapOf<String, Set<String>>()
-    private val loggedMissingUniforms = mutableSetOf<String>()
-    
-    // WebGL fallback hydrator
+    // Renderers
+    private var webGPURenderer: WebGPURenderer? = null
     private var webGLHydrator: WebGLEffectHydrator? = null
     
-    // Interaction state
-    private var mouseX = 0f
-    private var mouseY = 0f
-    private var isMouseDown = false
-
-    private var lastFrameTotalTime = 0f
-    private var startTime: Double = 0.0  // Track start time for animation
+    // Interaction handler
+    private val interactionHandler = InteractionHandler(canvas, interactions)
     
     /**
      * Initialize the effect hydrator.
@@ -99,6 +53,11 @@ class SigilEffectHydrator(
     suspend fun initialize(): Boolean {
         // Sync canvas buffer size with CSS display size
         syncCanvasSize()
+        
+        // Setup interaction listeners
+        if (hasMouseInteraction()) {
+            interactionHandler.setupMouseListeners()
+        }
         
         // Detect best available renderer
         rendererType = detectRendererType()
@@ -121,10 +80,6 @@ class SigilEffectHydrator(
     /**
      * Detect the best available renderer type based on browser capabilities
      * and effect shader availability.
-     * 
-     * As of Materia 0.3.4.0, both WebGPU and WebGL effect composers are available:
-     * - WebGPUEffectComposer: Uses WGSL shaders (preferred when WebGPU available)
-     * - WebGLEffectComposer: Uses GLSL shaders (fallback for Firefox, Safari)
      */
     private fun detectRendererType(): RendererType {
         val hasWebGPU = isWebGPUAvailable()
@@ -171,79 +126,14 @@ class SigilEffectHydrator(
     }
     
     /**
-     * Initialize WebGPU rendering using Materia's WebGPUEffectComposer.
+     * Initialize WebGPU rendering.
      */
     private suspend fun initializeWebGPU(): Boolean {
-        try {
-            // Request WebGPU adapter and device
-            val navigator = js("navigator")
-            val gpu = navigator.gpu
-            if (gpu == null || gpu == undefined) {
-                console.error("SigilEffectHydrator: WebGPU not available")
-                return fallbackToWebGL()
-            }
-            
-            val adapterPromise: kotlin.js.Promise<dynamic> = gpu.requestAdapter().unsafeCast<kotlin.js.Promise<dynamic>>()
-            val adapter: dynamic = adapterPromise.await()
-            if (adapter == null) {
-                console.error("SigilEffectHydrator: Failed to get WebGPU adapter")
-                return fallbackToWebGL()
-            }
-            
-            val devicePromise: kotlin.js.Promise<dynamic> = adapter.requestDevice().unsafeCast<kotlin.js.Promise<dynamic>>()
-            val device: dynamic = devicePromise.await()
-            if (device == null) {
-                console.error("SigilEffectHydrator: Failed to get WebGPU device")
-                return fallbackToWebGL()
-            }
-            
-            // Configure canvas context for WebGPU
-            val context = canvas.getContext("webgpu")
-            if (context == null) {
-                console.error("SigilEffectHydrator: Failed to get WebGPU canvas context")
-                return fallbackToWebGL()
-            }
-            
-            val format = gpu.getPreferredCanvasFormat()
-            // Cast context to dynamic first, then call configure
-            val gpuContext: dynamic = context
-            gpuContext.configure(js("{device: device, format: format, alphaMode: 'premultiplied'}"))
-            
-            // Store device and context for render loop
-            webGPUDevice = device
-            webGPUContext = context
-            
-            // Create WebGPUEffectComposer (cast device to expected type)
-            webGPUComposer = WebGPUEffectComposer(
-                device = device.unsafeCast<io.materia.renderer.webgpu.GPUDevice>(),
-                width = canvas.width,
-                height = canvas.height
-            )
-            
-            // Create FullScreenEffectPass for each effect in the composer data
-            composerData.effects.forEach { effectData ->
-                if (effectData.enabled) {
-                    val pass = createEffectPass(effectData)
-                    effectPasses[effectData.id] = pass
-                    webGPUComposer?.addPass(pass)
-                }
-            }
-            
-            // Note: We manage timing ourselves in the render loop (startWebGPURenderLoop)
-            // to ensure uniform updates are synchronized with rendering.
-            // The RenderLoop from Materia is not used to avoid two separate RAF loops.
-            
-            // Setup interaction listeners
-            if (hasMouseInteraction()) {
-                setupMouseListeners()
-            }
-            
-            console.log("SigilEffectHydrator: Initialized WebGPU with ${effectPasses.size} effect passes")
+        webGPURenderer = WebGPURenderer(canvas, composerData, config, interactionHandler)
+        if (webGPURenderer?.initialize() == true) {
             return true
-        } catch (e: Exception) {
-            console.error("SigilEffectHydrator: Failed to initialize WebGPU: ${e.message}")
-            return fallbackToWebGL()
         }
+        return fallbackToWebGL()
     }
     
     /**
@@ -292,243 +182,6 @@ class SigilEffectHydrator(
     fun getRendererType(): RendererType = rendererType
     
     /**
-     * Create a FullScreenEffectPass from shader effect data.
-     */
-    private fun createEffectPass(effectData: ShaderEffectData): FullScreenEffectPass {
-        val uniformStructFields = extractWgslUniformStructFields(effectData.fragmentShader)
-        val structFieldNames = uniformStructFields.map { it.name }.toSet()
-        val declaredFieldNames = (structFieldNames + effectData.uniforms.keys).toSet()
-        declaredUniformsByEffectId[effectData.id] = declaredFieldNames
-
-        return FullScreenEffectPass.create {
-            fragmentShader = effectData.fragmentShader
-            
-            // Map blend modes to Materia equivalents.
-            // Note: OVERLAY maps to MULTIPLY as an approximation since true
-            // overlay blending requires shader-based implementation.
-            blendMode = when (effectData.blendMode) {
-                BlendMode.NORMAL -> MateriaBlendMode.ALPHA_BLEND
-                BlendMode.ADDITIVE -> MateriaBlendMode.ADDITIVE
-                BlendMode.MULTIPLY -> MateriaBlendMode.MULTIPLY
-                BlendMode.SCREEN -> MateriaBlendMode.SCREEN
-                BlendMode.OVERLAY -> MateriaBlendMode.OVERLAY
-            }
-            
-            // Build uniforms block
-            uniforms {
-                // WebGPU: Materia packs uniforms into a single uniform buffer (binding 0).
-                // To ensure correct offsets, declare fields in the exact order used by the WGSL
-                // struct bound to `var<uniform> uniforms: ...`.
-
-                val declared = mutableSetOf<String>()
-
-                if (uniformStructFields.isNotEmpty()) {
-                    for (field in uniformStructFields) {
-                        val name = field.name
-                        declared.add(name)
-                        val schemaValue = effectData.uniforms[name]
-                        if (schemaValue != null) {
-                            declareFromSchemaValue(name, schemaValue)
-                        } else {
-                            declareFromWgslType(name, field.wgslType)
-                        }
-                    }
-                }
-
-                // Declare any remaining schema-provided uniforms that were not present in the WGSL
-                // struct (won't affect offsets of the struct fields).
-                for ((name, value) in effectData.uniforms.entries.sortedBy { it.key }) {
-                    if (declared.contains(name)) continue
-                    declared.add(name)
-                    declareFromSchemaValue(name, value)
-                }
-            }
-        }
-    }
-
-    private data class WgslUniformField(
-        val name: String,
-        val wgslType: String
-    )
-
-    /**
-     * Extract field order from the WGSL struct bound to `var<uniform> uniforms: <StructName>;`.
-     * This is required to make the CPU-side uniform packing match the shader's expected offsets.
-     */
-    private fun extractWgslUniformStructFields(wgsl: String): List<WgslUniformField> {
-        // 1. Find the struct name used in 'var<uniform> ... : StructName;'
-        // Allow any variable name, and handle potential attributes before 'var'
-        val uniformVarRegex = Regex(
-            """var<uniform>\s+([A-Za-z_][A-Za-z0-9_]*)\s*:\s*([A-Za-z_][A-Za-z0-9_]*)\s*;"""
-        )
-        val match = uniformVarRegex.find(wgsl) ?: return emptyList()
-        val structName = match.groupValues.getOrNull(2) ?: return emptyList()
-
-        // 2. Find the struct definition: struct StructName { ... }
-        val structHeaderRegex = Regex("""\bstruct\s+${Regex.escape(structName)}\b""")
-        val headerMatch = structHeaderRegex.find(wgsl) ?: return emptyList()
-        
-        val openBraceIndex = wgsl.indexOf('{', startIndex = headerMatch.range.last + 1)
-        if (openBraceIndex < 0) return emptyList()
-
-        val closeBraceIndex = findMatchingBrace(wgsl, openBraceIndex)
-        if (closeBraceIndex <= openBraceIndex) return emptyList()
-
-        val body = wgsl.substring(openBraceIndex + 1, closeBraceIndex)
-
-        // 3. Parse fields. WGSL fields are comma-separated.
-        // Remove comments first
-        val bodyNoComments = body.lines().joinToString("\n") { line ->
-            val idx = line.indexOf("//")
-            if (idx >= 0) line.substring(0, idx) else line
-        }
-
-        // Split by comma, respecting brackets
-        val fields = mutableListOf<WgslUniformField>()
-        var currentToken = StringBuilder()
-        var bracketDepth = 0
-        
-        for (char in bodyNoComments) {
-            when (char) {
-                '<' -> {
-                    bracketDepth++
-                    currentToken.append(char)
-                }
-                '>' -> {
-                    bracketDepth--
-                    currentToken.append(char)
-                }
-                ',' -> {
-                    if (bracketDepth == 0) {
-                        parseField(currentToken.toString())?.let { fields.add(it) }
-                        currentToken.clear()
-                    } else {
-                        currentToken.append(char)
-                    }
-                }
-                else -> currentToken.append(char)
-            }
-        }
-        // Last token
-        if (currentToken.isNotEmpty()) {
-            parseField(currentToken.toString())?.let { fields.add(it) }
-        }
-        
-        return fields
-    }
-
-    private fun parseField(token: String): WgslUniformField? {
-        val trimmed = token.trim()
-        if (trimmed.isBlank()) return null
-        // Match "name : type"
-        // Type can contain < >
-        val parts = trimmed.split(':')
-        if (parts.size < 2) return null
-        val name = parts[0].trim()
-        val type = parts.subList(1, parts.size).joinToString(":").trim()
-        if (name.isBlank() || type.isBlank()) return null
-        return WgslUniformField(name, type)
-    }
-
-    private fun findMatchingBrace(source: String, openIndex: Int): Int {
-        if (openIndex !in source.indices || source[openIndex] != '{') return -1
-        var depth = 0
-        var i = openIndex
-        while (i < source.length) {
-            when (source[i]) {
-                '{' -> depth++
-                '}' -> {
-                    depth--
-                    if (depth == 0) return i
-                }
-            }
-            i++
-        }
-        return -1
-    }
-
-    private fun io.materia.effects.UniformBlockBuilder.declareFromSchemaValue(name: String, value: UniformValue) {
-        when (value) {
-            is UniformValue.FloatValue -> float(name)
-            is UniformValue.IntValue -> int(name)
-            is UniformValue.Vec2Value -> vec2(name)
-            is UniformValue.Vec3Value -> vec3(name)
-            is UniformValue.Vec4Value -> vec4(name)
-            is UniformValue.Mat3Value -> mat3(name)
-            is UniformValue.Mat4Value -> mat4(name)
-        }
-    }
-
-    private fun io.materia.effects.UniformBlockBuilder.declareFromWgslType(name: String, wgslType: String) {
-        val t = wgslType.replace(" ", "")
-        when {
-            t.startsWith("mat4") -> mat4(name)
-            t.startsWith("mat3") -> mat3(name)
-            t.startsWith("vec4") -> vec4(name)
-            t.startsWith("vec3") -> vec3(name)
-            t.startsWith("vec2") -> vec2(name)
-            t.startsWith("i32") -> int(name)
-            t.startsWith("u32") -> int(name) // Treat u32 as int for layout
-            else -> float(name)
-        }
-    }
-    
-    /**
-     * Update all effects with current frame and interaction data.
-     * Called from our unified render loop with explicit time values.
-     */
-    private fun updateEffectsWithTime(totalTime: Float, deltaTime: Float) {
-        composerData.effects.forEach { effectData ->
-            val pass = effectPasses[effectData.id] ?: return@forEach
-            val declared = declaredUniformsByEffectId[effectData.id].orEmpty()
-            
-            pass.updateUniforms {
-                // Standard uniforms
-                if (declared.contains("time")) set("time", totalTime * effectData.timeScale)
-                if (declared.contains("deltaTime")) set("deltaTime", deltaTime)
-                if (declared.contains("resolution")) set("resolution", canvas.width.toFloat(), canvas.height.toFloat())
-                if (declared.contains("scroll")) set("scroll", 0f)
-                if (declared.contains("_padding")) set("_padding", 0f)
-
-                // Optional interaction uniforms (only if present in the shader struct)
-                if (declared.contains("mouse")) {
-                    if (effectData.enableMouseInteraction) {
-                        set("mouse", mouseX, mouseY)
-                    } else {
-                        set("mouse", 0.5f, 0.5f)
-                    }
-                }
-                if (declared.contains("mouseDown")) {
-                    set("mouseDown", if (effectData.enableMouseInteraction && isMouseDown) 1f else 0f)
-                }
-                
-                // Effect-specific uniforms (skip standard uniforms already set above)
-                val standardUniforms = setOf("time", "deltaTime", "resolution", "mouse", "mouseDown", "scroll", "_padding")
-                effectData.uniforms.forEach { (name, value) ->
-                    // Skip standard uniforms - they are already set with animated values above
-                    if (name in standardUniforms) return@forEach
-                    if (!declared.contains(name)) {
-                        val key = "${effectData.id}:$name"
-                        if (loggedMissingUniforms.add(key)) {
-                            console.warn("SigilEffectHydrator: Uniform '$name' not declared in shader for effect ${effectData.id}")
-                        }
-                        return@forEach
-                    }
-                    when (value) {
-                        is UniformValue.FloatValue -> set(name, value.value)
-                        is UniformValue.IntValue -> set(name, value.value.toFloat())
-                        is UniformValue.Vec2Value -> set(name, value.value.x, value.value.y)
-                        is UniformValue.Vec3Value -> set(name, value.value.x, value.value.y, value.value.z)
-                        is UniformValue.Vec4Value -> set(name, value.value.x, value.value.y, value.value.z, value.value.w)
-                        is UniformValue.Mat3Value -> setMat3(name, value.values.toFloatArray())
-                        is UniformValue.Mat4Value -> setMat4(name, value.values.toFloatArray())
-                    }
-                }
-            }
-        }
-    }
-    
-    /**
      * Check if any effect requires mouse interaction.
      */
     private fun hasMouseInteraction(): Boolean {
@@ -537,41 +190,11 @@ class SigilEffectHydrator(
     }
     
     /**
-     * Setup mouse event listeners for interaction.
-     */
-    private fun setupMouseListeners() {
-        canvas.addEventListener("mousemove", { event ->
-            val e = event as MouseEvent
-            val rect = canvas.getBoundingClientRect()
-            mouseX = ((e.clientX - rect.left) / rect.width).toFloat()
-            mouseY = ((e.clientY - rect.top) / rect.height).toFloat()
-        })
-        
-        canvas.addEventListener("mousedown", { isMouseDown = true })
-        canvas.addEventListener("mouseup", { isMouseDown = false })
-        canvas.addEventListener("mouseleave", { isMouseDown = false })
-        
-        // Touch support
-        canvas.addEventListener("touchmove", { event ->
-            val e = event.asDynamic()
-            if (e.touches.length > 0) {
-                val touch = e.touches[0]
-                val rect = canvas.getBoundingClientRect()
-                mouseX = ((touch.clientX - rect.left) / rect.width).toFloat()
-                mouseY = ((touch.clientY - rect.top) / rect.height).toFloat()
-            }
-        })
-        
-        canvas.addEventListener("touchstart", { isMouseDown = true })
-        canvas.addEventListener("touchend", { isMouseDown = false })
-    }
-    
-    /**
      * Start the render loop.
      */
     fun startRenderLoop() {
         when (rendererType) {
-            RendererType.WEBGPU -> startWebGPURenderLoop()
+            RendererType.WEBGPU -> webGPURenderer?.startRenderLoop()
             RendererType.WEBGL -> webGLHydrator?.startRenderLoop()
             RendererType.CSS_FALLBACK, RendererType.NONE -> {
                 // No render loop needed for CSS fallback
@@ -580,60 +203,11 @@ class SigilEffectHydrator(
     }
     
     /**
-     * Start WebGPU render loop using WebGPUEffectComposer.
-     */
-    private fun startWebGPURenderLoop() {
-        running = true
-        startTime = 0.0
-        
-        fun animate(currentTimeMs: Double) {
-            if (!running) return
-            
-            // Initialize start time on first frame
-            if (startTime == 0.0) {
-                startTime = currentTimeMs
-            }
-            
-            try {
-                // Calculate frame timing (convert ms to seconds)
-                val totalTimeSeconds = ((currentTimeMs - startTime) / 1000.0).toFloat()
-                val deltaTime = (totalTimeSeconds - lastFrameTotalTime).coerceAtLeast(0f)
-                lastFrameTotalTime = totalTimeSeconds
-                
-                // Update uniforms BEFORE rendering (critical for animation!)
-                updateEffectsWithTime(totalTimeSeconds, deltaTime)
-                
-                // Get current swapchain texture from canvas context
-                val currentTexture = webGPUContext.getCurrentTexture()
-                if (currentTexture != null && currentTexture != undefined) {
-                    val textureView = currentTexture.createView()
-                    
-                    // Render all effect passes to the swapchain texture
-                    // Materia 0.3.4.2+ exports render() via @JsExport
-                    webGPUComposer?.render(textureView)
-                }
-            } catch (e: dynamic) {
-                console.error("SigilEffectHydrator: WebGPU render error: $e")
-            }
-            
-            animationFrameId = window.requestAnimationFrame { ts -> animate(ts) }
-        }
-        
-        window.requestAnimationFrame { ts -> animate(ts) }
-        console.log("SigilEffectHydrator: WebGPU render loop started with ${effectPasses.size} passes")
-    }
-    
-    /**
      * Stop the render loop.
      */
     fun stop() {
-        running = false
+        webGPURenderer?.stopRenderLoop()
         webGLHydrator?.stop()
-        
-        if (animationFrameId != 0) {
-            window.cancelAnimationFrame(animationFrameId)
-            animationFrameId = 0
-        }
     }
     
     /**
@@ -641,18 +215,14 @@ class SigilEffectHydrator(
      */
     fun dispose() {
         stop()
-        webGPUComposer?.dispose()
-        webGPUComposer = null
-        webGPUDevice = null
-        webGPUContext = null
-        effectPasses.clear()
+        interactionHandler.dispose()
+        webGPURenderer = null
         webGLHydrator?.dispose()
         webGLHydrator = null
     }
     
     /**
      * Sync canvas buffer size with CSS display size.
-     * This ensures the WebGPU/WebGL buffer matches the actual display size.
      */
     private fun syncCanvasSize() {
         val rect = canvas.getBoundingClientRect()
@@ -679,26 +249,28 @@ class SigilEffectHydrator(
         canvas.height = bufferHeight
         
         when (rendererType) {
-            RendererType.WEBGPU -> webGPUComposer?.setSize(bufferWidth, bufferHeight)
+            RendererType.WEBGPU -> webGPURenderer?.resize(bufferWidth.toDouble(), bufferHeight.toDouble())
             RendererType.WEBGL -> webGLHydrator?.resize(bufferWidth, bufferHeight)
             RendererType.CSS_FALLBACK, RendererType.NONE -> {}
         }
     }
     
+    /**
+     * Setup resize observer for this hydrator.
+     */
+    fun setupResizeObserver() {
+        interactionHandler.setupResizeObserver(canvas) { width, height ->
+            resize(width.toInt(), height.toInt())
+        }
+    }
+    
     companion object {
         // Track hydrated canvases to prevent double initialization
-        // Uses a set for O(1) lookup - checked synchronously before launching coroutine
         private val hydratedCanvases = mutableSetOf<String>()
         private val hydrationInProgress = mutableSetOf<String>()
         
         /**
          * Hydrate effects from DOM data.
-         * Called by the hydration script embedded in the HTML.
-         * 
-         * Reads effect data from the data-sigil-effects attribute on the canvas.
-         * 
-         * @param canvasId The ID of the canvas element to hydrate
-         * @param forceReinitialize If true, disposes existing hydrator and reinitializes (for hot reload)
          */
         fun hydrateFromDOM(canvasId: String, forceReinitialize: Boolean = false) {
             // SYNCHRONOUS checks BEFORE launching coroutine to prevent race conditions
@@ -790,10 +362,9 @@ class SigilEffectHydrator(
                         hydrationInProgress.remove(canvasId)
                         hydratedCanvases.add(canvasId)
                         
-                        // Setup resize observer using Kotlin callback
-                        setupResizeObserver(canvasElement) { width, height ->
-                            hydrator.resize(width.toInt(), height.toInt())
-                        }
+                        // Setup resize observer
+                        hydrator.setupResizeObserver()
+                        
                     } else {
                         hydrationInProgress.remove(canvasId)
                     }
