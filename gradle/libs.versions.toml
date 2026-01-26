@@ -8,6 +8,7 @@ coroutines = "1.9.0"
 ktor = "3.0.3"
 jakarta-servlet = "6.0.0"
 logback = "1.4.14"
+lwjgl = "3.3.3"
 
 [libraries]
 # Kotlin
@@ -41,6 +42,11 @@ jakarta-servlet-api = { group = "jakarta.servlet", name = "jakarta.servlet-api",
 
 # Logging
 logback-classic = { group = "ch.qos.logback", name = "logback-classic", version.ref = "logback" }
+
+# LWJGL (JVM rendering helpers)
+lwjgl = { group = "org.lwjgl", name = "lwjgl", version.ref = "lwjgl" }
+lwjgl-glfw = { group = "org.lwjgl", name = "lwjgl-glfw", version.ref = "lwjgl" }
+lwjgl-vulkan = { group = "org.lwjgl", name = "lwjgl-vulkan", version.ref = "lwjgl" }
 
 [plugins]
 kotlin-multiplatform = { id = "org.jetbrains.kotlin.multiplatform", version.ref = "kotlin" }

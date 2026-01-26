@@ -129,96 +129,6 @@ actual fun MateriaCanvas(
         )
     }
 
-    Box(modifier = actualModifier) {
-        SwingPanel(
-            modifier = Modifier.fillMaxSize(),
-            factory = {
-                object : Canvas() {
-                    init {
-                        preferredSize = Dimension(800, 600)
-                        ignoreRepaint = true
-                    }
-
-                    override fun addNotify() {
-                        super.addNotify()
-                        canvasState.canvas = this
-
-                        SwingUtilities.invokeLater {
-                            initializeRenderer(this)
-                        }
-                    }
-
-                    override fun removeNotify() {
-                        shutdownRenderer()
-                        super.removeNotify()
-                    }
-                }
-            },
-            update = { canvas ->
-                canvasState.canvas = canvas
-                if (renderState.windowHandle != 0L && canvas.width > 0 && canvas.height > 0) {
-                    glfwSetWindowSize(renderState.windowHandle, canvas.width, canvas.height)
-                }
-            }
-        )
-    }
-
-    DisposableEffect(Unit) {
-        onDispose {
-            shutdownRenderer()
-            renderScope.cancel()
-            canvasState.isInitialized = false
-            canvasState.renderer = null
-        }
-    }
-
-    fun initializeRenderer(canvas: Canvas) {
-        if (renderState.renderer != null || renderState.running) return
-
-        if (!glfwInitialized) {
-            if (!glfwInit()) {
-                System.err.println("Sigil: Failed to initialize GLFW for Vulkan rendering.")
-                return
-            }
-            glfwInitialized = true
-        }
-
-        glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API)
-        glfwWindowHint(GLFW_RESIZABLE, GLFW_TRUE)
-        glfwWindowHint(GLFW_VISIBLE, GLFW_TRUE)
-
-        val width = canvas.width.coerceAtLeast(1)
-        val height = canvas.height.coerceAtLeast(1)
-        val windowHandle = glfwCreateWindow(width, height, "Sigil Materia", 0L, 0L)
-        if (windowHandle == 0L) {
-            System.err.println("Sigil: Failed to create GLFW window for Vulkan rendering.")
-            return
-        }
-
-        renderState.windowHandle = windowHandle
-        renderState.surface = VulkanSurface(windowHandle)
-        renderState.running = true
-
-        renderState.renderJob = renderScope.launch {
-            val surface = renderState.surface ?: return@launch
-            val result = RendererFactory.create(surface, RendererConfig())
-            when (result) {
-                is io.materia.core.Result.Success -> {
-                    val renderer = result.value
-                    renderState.renderer = renderer
-                    canvasState.renderer = renderer
-                    canvasState.scene = scene
-                    canvasState.isInitialized = true
-
-                    runRenderLoop(renderer, surface)
-                }
-                is io.materia.core.Result.Error -> {
-                    System.err.println("Sigil: Failed to initialize renderer: ${result.message}")
-                }
-            }
-        }
-    }
-
     fun runRenderLoop(renderer: Renderer, surface: VulkanSurface) {
         var lastTime = System.nanoTime()
         var lastWidth = 0
@@ -274,6 +184,96 @@ actual fun MateriaCanvas(
         }
 
         renderState.surface = null
+    }
+
+    fun initializeRenderer(canvas: Canvas) {
+        if (renderState.renderer != null || renderState.running) return
+
+        if (!glfwInitialized) {
+            if (!glfwInit()) {
+                System.err.println("Sigil: Failed to initialize GLFW for Vulkan rendering.")
+                return
+            }
+            glfwInitialized = true
+        }
+
+        glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API)
+        glfwWindowHint(GLFW_RESIZABLE, GLFW_TRUE)
+        glfwWindowHint(GLFW_VISIBLE, GLFW_TRUE)
+
+        val width = canvas.width.coerceAtLeast(1)
+        val height = canvas.height.coerceAtLeast(1)
+        val windowHandle = glfwCreateWindow(width, height, "Sigil Materia", 0L, 0L)
+        if (windowHandle == 0L) {
+            System.err.println("Sigil: Failed to create GLFW window for Vulkan rendering.")
+            return
+        }
+
+        renderState.windowHandle = windowHandle
+        renderState.surface = VulkanSurface(windowHandle)
+        renderState.running = true
+
+        renderState.renderJob = renderScope.launch {
+            val surface = renderState.surface ?: return@launch
+            val result = RendererFactory.create(surface, RendererConfig())
+            when (result) {
+                is io.materia.core.Result.Success -> {
+                    val renderer = result.value
+                    renderState.renderer = renderer
+                    canvasState.renderer = renderer
+                    canvasState.scene = scene
+                    canvasState.isInitialized = true
+
+                    runRenderLoop(renderer, surface)
+                }
+                is io.materia.core.Result.Error -> {
+                    System.err.println("Sigil: Failed to initialize renderer: ${result.message}")
+                }
+            }
+        }
+    }
+
+    Box(modifier = actualModifier) {
+        SwingPanel(
+            modifier = Modifier.fillMaxSize(),
+            factory = {
+                object : Canvas() {
+                    init {
+                        preferredSize = Dimension(800, 600)
+                        ignoreRepaint = true
+                    }
+
+                    override fun addNotify() {
+                        super.addNotify()
+                        canvasState.canvas = this
+
+                        SwingUtilities.invokeLater {
+                            initializeRenderer(this)
+                        }
+                    }
+
+                    override fun removeNotify() {
+                        shutdownRenderer()
+                        super.removeNotify()
+                    }
+                }
+            },
+            update = { canvas ->
+                canvasState.canvas = canvas
+                if (renderState.windowHandle != 0L && canvas.width > 0 && canvas.height > 0) {
+                    glfwSetWindowSize(renderState.windowHandle, canvas.width, canvas.height)
+                }
+            }
+        )
+    }
+
+    DisposableEffect(Unit) {
+        onDispose {
+            shutdownRenderer()
+            renderScope.cancel()
+            canvasState.isInitialized = false
+            canvasState.renderer = null
+        }
     }
 }
 

@@ -41,6 +41,9 @@ kotlin {
         jvmMain {
             dependencies {
                 implementation(compose.desktop.currentOs)
+                implementation(libs.lwjgl)
+                implementation(libs.lwjgl.glfw)
+                implementation(libs.lwjgl.vulkan)
             }
         }
     }
