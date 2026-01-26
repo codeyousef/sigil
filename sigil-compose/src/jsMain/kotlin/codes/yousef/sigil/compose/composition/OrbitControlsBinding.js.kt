@@ -6,6 +6,7 @@ import io.materia.controls.OrbitControls
 import io.materia.controls.PointerButton
 import kotlinx.browser.window
 import org.w3c.dom.HTMLCanvasElement
+import org.w3c.dom.events.Event
 import org.w3c.dom.events.KeyboardEvent
 import org.w3c.dom.events.MouseEvent
 import org.w3c.dom.events.WheelEvent
@@ -15,7 +16,7 @@ internal actual fun bindOrbitControls(
     canvasState: MateriaCanvasState
 ): OrbitControlsBinding? {
     val canvasElement = canvasState.canvas as? HTMLCanvasElement ?: return null
-    canvasElement.style.touchAction = "none"
+    canvasElement.style.setProperty("touch-action", "none")
 
     var activeButton: PointerButton? = null
 
@@ -26,49 +27,56 @@ internal actual fun bindOrbitControls(
         return Pair(x.toFloat(), y.toFloat())
     }
 
-    val mouseDown: (MouseEvent) -> Unit = { event ->
-        val button = toPointerButton(event.button)
-        val (x, y) = pointerPosition(event)
+    val mouseDown: (Event) -> Unit = mouseDown@{ event ->
+        val mouseEvent = event as? MouseEvent ?: return@mouseDown
+        val button = toPointerButton(mouseEvent.button)
+        val (x, y) = pointerPosition(mouseEvent)
         activeButton = button
         controls.onPointerDown(x, y, button)
-        event.preventDefault()
+        mouseEvent.preventDefault()
     }
 
-    val mouseMove: (MouseEvent) -> Unit = mouseMove@{ event ->
+    val mouseMove: (Event) -> Unit = mouseMove@{ event ->
+        val mouseEvent = event as? MouseEvent ?: return@mouseMove
         val button = activeButton ?: return@mouseMove
-        val (x, y) = pointerPosition(event)
+        val (x, y) = pointerPosition(mouseEvent)
         controls.onPointerMove(x, y, button)
-        event.preventDefault()
+        mouseEvent.preventDefault()
     }
 
-    val mouseUp: (MouseEvent) -> Unit = { event ->
-        val button = activeButton ?: toPointerButton(event.button)
-        val (x, y) = pointerPosition(event)
+    val mouseUp: (Event) -> Unit = mouseUp@{ event ->
+        val mouseEvent = event as? MouseEvent ?: return@mouseUp
+        val button = activeButton ?: toPointerButton(mouseEvent.button)
+        val (x, y) = pointerPosition(mouseEvent)
         controls.onPointerUp(x, y, button)
         activeButton = null
-        event.preventDefault()
+        mouseEvent.preventDefault()
     }
 
-    val wheelHandler: (WheelEvent) -> Unit = { event ->
-        controls.onWheel(event.deltaX.toFloat(), event.deltaY.toFloat())
-        event.preventDefault()
+    val wheelHandler: (Event) -> Unit = wheelHandler@{ event ->
+        val wheelEvent = event as? WheelEvent ?: return@wheelHandler
+        controls.onWheel(wheelEvent.deltaX.toFloat(), wheelEvent.deltaY.toFloat())
+        wheelEvent.preventDefault()
     }
 
-    val contextMenu: (MouseEvent) -> Unit = { event ->
-        event.preventDefault()
+    val contextMenu: (Event) -> Unit = contextMenu@{ event ->
+        val mouseEvent = event as? MouseEvent ?: return@contextMenu
+        mouseEvent.preventDefault()
     }
 
-    val keyDown: (KeyboardEvent) -> Unit = { event ->
-        toControlsKey(event.key)?.let { key ->
+    val keyDown: (Event) -> Unit = keyDown@{ event ->
+        val keyEvent = event as? KeyboardEvent ?: return@keyDown
+        toControlsKey(keyEvent.key)?.let { key ->
             controls.onKeyDown(key)
-            event.preventDefault()
+            keyEvent.preventDefault()
         }
     }
 
-    val keyUp: (KeyboardEvent) -> Unit = { event ->
-        toControlsKey(event.key)?.let { key ->
+    val keyUp: (Event) -> Unit = keyUp@{ event ->
+        val keyEvent = event as? KeyboardEvent ?: return@keyUp
+        toControlsKey(keyEvent.key)?.let { key ->
             controls.onKeyUp(key)
-            event.preventDefault()
+            keyEvent.preventDefault()
         }
     }
 
