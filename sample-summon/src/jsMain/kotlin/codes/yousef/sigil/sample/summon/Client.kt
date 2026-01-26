@@ -5,9 +5,11 @@ import kotlinx.browser.window
 import codes.yousef.sigil.schema.SigilScene
 import codes.yousef.sigil.schema.SigilNodeData
 import codes.yousef.sigil.schema.MeshData
+import codes.yousef.sigil.schema.ModelData
 import codes.yousef.sigil.schema.GroupData
 import codes.yousef.sigil.schema.LightData
 import codes.yousef.sigil.schema.CameraData
+import codes.yousef.sigil.schema.ControlsData
 import codes.yousef.sigil.schema.GeometryType
 import codes.yousef.sigil.schema.LightType
 import org.w3c.dom.HTMLCanvasElement
@@ -122,6 +124,9 @@ private fun processNode(
         is LightData -> {
             addLight(nodeData, lightingSystem)
         }
+        is ModelData -> {
+            // Model loading not supported in this sample
+        }
         is GroupData -> {
             val group = createGroup(nodeData, lightingSystem, camera)
             scene.add(group)
@@ -139,6 +144,9 @@ private fun processNode(
             nodeData.lookAt?.let { target ->
                 camera.lookAt(Vector3(target[0], target[1], target[2]))
             }
+        }
+        is ControlsData -> {
+            // Controls are not handled in this sample
         }
     }
 }
@@ -300,8 +308,10 @@ private fun createGroup(
         when (childData) {
             is MeshData -> group.add(createMesh(childData))
             is LightData -> addLight(childData, lightingSystem)
+            is ModelData -> { /* Model loading not supported in this sample */ }
             is GroupData -> group.add(createGroup(childData, lightingSystem, camera))
             is CameraData -> { /* Cameras are handled at scene level */ }
+            is ControlsData -> { /* Controls are handled at scene level */ }
         }
     }
 

@@ -3,6 +3,7 @@ package codes.yousef.sigil.schema
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
+import kotlin.math.PI
 
 /**
  * Default JSON configuration for Sigil serialization.
@@ -108,6 +109,54 @@ data class MeshData(
      * Whether this mesh receives shadows
      */
     val receiveShadow: Boolean = true
+) : SigilNodeData()
+
+/**
+ * Material overrides for glTF model meshes.
+ *
+ * If [target] is null, the override applies to all mesh materials.
+ * If [target] is set, it is matched against material or mesh names.
+ */
+@Serializable
+data class ModelMaterialOverride(
+    val target: String? = null,
+    val color: Int? = null,
+    val metalness: Float? = null,
+    val roughness: Float? = null
+)
+
+/**
+ * Represents a glTF model in the scene graph.
+ */
+@Serializable
+@SerialName("model")
+data class ModelData(
+    override val id: String,
+    override val position: List<Float> = listOf(0f, 0f, 0f),
+    override val rotation: List<Float> = listOf(0f, 0f, 0f),
+    override val scale: List<Float> = listOf(1f, 1f, 1f),
+    override val visible: Boolean = true,
+    override val name: String? = null,
+
+    /**
+     * URL or file path to a .gltf/.glb asset.
+     */
+    val url: String,
+
+    /**
+     * Whether meshes in the model cast shadows.
+     */
+    val castShadow: Boolean = true,
+
+    /**
+     * Whether meshes in the model receive shadows.
+     */
+    val receiveShadow: Boolean = true,
+
+    /**
+     * Optional material overrides applied after loading.
+     */
+    val materialOverrides: List<ModelMaterialOverride> = emptyList()
 ) : SigilNodeData()
 
 /**
@@ -241,6 +290,41 @@ data class CameraData(
 ) : SigilNodeData()
 
 /**
+ * Camera controls configuration node.
+ */
+@Serializable
+@SerialName("controls")
+data class ControlsData(
+    override val id: String,
+    override val position: List<Float> = listOf(0f, 0f, 0f),
+    override val rotation: List<Float> = listOf(0f, 0f, 0f),
+    override val scale: List<Float> = listOf(1f, 1f, 1f),
+    override val visible: Boolean = true,
+    override val name: String? = null,
+
+    val controlsType: ControlsType = ControlsType.ORBIT,
+    val target: List<Float> = listOf(0f, 0f, 0f),
+    val enableDamping: Boolean = true,
+    val dampingFactor: Float = 0.05f,
+    val minDistance: Float = 1f,
+    val maxDistance: Float = 1000f,
+    val minPolarAngle: Float = 0f,
+    val maxPolarAngle: Float = PI.toFloat(),
+    val minAzimuthAngle: Float = -Float.MAX_VALUE,
+    val maxAzimuthAngle: Float = Float.MAX_VALUE,
+    val rotateSpeed: Float = 1f,
+    val zoomSpeed: Float = 1f,
+    val panSpeed: Float = 1f,
+    val keyboardSpeed: Float = 1f,
+    val enableRotate: Boolean = true,
+    val enableZoom: Boolean = true,
+    val enablePan: Boolean = true,
+    val enableKeys: Boolean = true,
+    val autoRotate: Boolean = false,
+    val autoRotateSpeed: Float = 2f
+) : SigilNodeData()
+
+/**
  * Supported geometry primitive types.
  */
 @Serializable
@@ -314,4 +398,12 @@ enum class LightType {
 enum class CameraType {
     @SerialName("PERSPECTIVE") PERSPECTIVE,
     @SerialName("ORTHOGRAPHIC") ORTHOGRAPHIC
+}
+
+/**
+ * Supported camera control types.
+ */
+@Serializable
+enum class ControlsType {
+    @SerialName("ORBIT") ORBIT
 }

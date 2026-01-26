@@ -3,9 +3,13 @@ package codes.yousef.sigil.summon.canvas
 import codes.yousef.sigil.schema.SigilScene
 import codes.yousef.sigil.schema.SigilNodeData
 import codes.yousef.sigil.schema.MeshData
+import codes.yousef.sigil.schema.ModelData
+import codes.yousef.sigil.schema.ModelMaterialOverride
 import codes.yousef.sigil.schema.GroupData
 import codes.yousef.sigil.schema.LightData
 import codes.yousef.sigil.schema.CameraData
+import codes.yousef.sigil.schema.ControlsData
+import codes.yousef.sigil.schema.ControlsType
 import codes.yousef.sigil.schema.GeometryType
 import codes.yousef.sigil.schema.GeometryParams
 import codes.yousef.sigil.schema.LightType
@@ -20,6 +24,10 @@ import io.materia.core.math.Vector3
 import io.materia.material.MeshBasicMaterial
 import io.materia.material.MeshStandardMaterial
 import io.materia.camera.PerspectiveCamera
+import io.materia.controls.ControlsConfig
+import io.materia.controls.Key
+import io.materia.controls.OrbitControls
+import io.materia.controls.PointerButton
 import io.materia.geometry.primitives.BoxGeometry
 import io.materia.geometry.primitives.SphereGeometry
 import io.materia.geometry.primitives.PlaneGeometry
@@ -33,6 +41,7 @@ import io.materia.geometry.OctahedronGeometry
 import io.materia.geometry.TetrahedronGeometry
 import io.materia.geometry.DodecahedronGeometry
 import io.materia.geometry.BufferGeometry
+import io.materia.loader.GLTFLoader
 import io.materia.lighting.AmbientLightImpl
 import io.materia.lighting.DirectionalLightImpl
 import io.materia.lighting.PointLightImpl
@@ -48,6 +57,9 @@ import kotlinx.coroutines.MainScope
 import kotlinx.coroutines.launch
 import org.w3c.dom.HTMLCanvasElement
 import org.w3c.dom.HTMLDivElement
+import org.w3c.dom.events.KeyboardEvent
+import org.w3c.dom.events.MouseEvent
+import org.w3c.dom.events.WheelEvent
 
 private val scope = MainScope()
 
@@ -65,6 +77,11 @@ class SigilHydrator(
     private var running = false
     private var camera: PerspectiveCamera? = null
     private val nodeMap = mutableMapOf<String, Object3D>()
+    private val lights = mutableListOf<Light>()
+    private val gltfLoader = GLTFLoader()
+    private var orbitControls: OrbitControls? = null
+    private var controlsCleanup: (() -> Unit)? = null
+    private var lastFrameTimeMs: Double = 0.0
 
     suspend fun initialize() {
         // Configure scene from settings
@@ -127,9 +144,16 @@ class SigilHydrator(
         val r = renderer ?: return
         
         running = true
+        lastFrameTimeMs = window.performance.now()
         
         fun renderFrame() {
             if (!running) return
+
+            val now = window.performance.now()
+            val deltaSeconds = ((now - lastFrameTimeMs) / 1000.0).toFloat()
+            lastFrameTimeMs = now
+
+            orbitControls?.update(deltaSeconds)
             
             materiaScene.updateMatrixWorld(true)
             cam.updateMatrixWorld()
@@ -152,6 +176,9 @@ class SigilHydrator(
 
     fun dispose() {
         stop()
+        controlsCleanup?.invoke()
+        controlsCleanup = null
+        orbitControls = null
         nodeMap.clear()
         renderer?.dispose()
         renderer = null
@@ -164,6 +191,7 @@ class SigilHydrator(
     private fun createMateriaNode(nodeData: SigilNodeData): Object3D? {
         return when (nodeData) {
             is MeshData -> createMesh(nodeData)
+            is ModelData -> createModel(nodeData)
             is GroupData -> createGroup(nodeData)
             is LightData -> {
                 // Lights in Materia 0.2.0.0 don't extend Object3D
@@ -173,6 +201,10 @@ class SigilHydrator(
             }
             is CameraData -> {
                 // Cameras are handled separately
+                null
+            }
+            is ControlsData -> {
+                createControls(nodeData)
                 null
             }
         }
@@ -197,8 +229,70 @@ class SigilHydrator(
             rotation.set(data.rotation[0], data.rotation[1], data.rotation[2])
             scale.set(data.scale[0], data.scale[1], data.scale[2])
             visible = data.visible
+            castShadow = data.castShadow
+            receiveShadow = data.receiveShadow
             name = data.name ?: ""
         }
+    }
+
+    private fun createModel(data: ModelData): Group {
+        val group = Group().apply {
+            position.set(data.position[0], data.position[1], data.position[2])
+            rotation.set(data.rotation[0], data.rotation[1], data.rotation[2])
+            scale.set(data.scale[0], data.scale[1], data.scale[2])
+            visible = data.visible
+            name = data.name ?: ""
+        }
+
+        scope.launch {
+            try {
+                val asset = gltfLoader.load(data.url)
+                val root = asset.scene
+                applyModelSettings(root, data)
+                group.clear()
+                group.add(root)
+            } catch (t: Throwable) {
+                console.error("Sigil: Failed to load model ${data.url}: ${t.message}")
+                group.clear()
+                group.add(createModelFallback(data))
+            }
+        }
+
+        return group
+    }
+
+    private fun createControls(data: ControlsData) {
+        val cam = camera ?: return
+        if (data.controlsType != ControlsType.ORBIT) return
+
+        val config = ControlsConfig(
+            minDistance = data.minDistance,
+            maxDistance = data.maxDistance,
+            minPolarAngle = data.minPolarAngle,
+            maxPolarAngle = data.maxPolarAngle,
+            minAzimuthAngle = data.minAzimuthAngle,
+            maxAzimuthAngle = data.maxAzimuthAngle,
+            rotateSpeed = data.rotateSpeed,
+            zoomSpeed = data.zoomSpeed,
+            panSpeed = data.panSpeed,
+            keyboardSpeed = data.keyboardSpeed,
+            enableRotate = data.enableRotate,
+            enableZoom = data.enableZoom,
+            enablePan = data.enablePan,
+            enableKeys = data.enableKeys,
+            enableDamping = data.enableDamping,
+            dampingFactor = data.dampingFactor,
+            autoRotate = data.autoRotate,
+            autoRotateSpeed = data.autoRotateSpeed
+        )
+
+        val controls = OrbitControls(cam, config).apply {
+            target = Vector3(data.target[0], data.target[1], data.target[2])
+        }
+
+        orbitControls = controls
+        controlsCleanup?.invoke()
+        controlsCleanup = attachOrbitControlsHandlers(controls)
     }
 
     private fun createGroup(data: GroupData): Group {
@@ -219,6 +313,183 @@ class SigilHydrator(
         }
 
         return group
+    }
+
+    private fun applyModelSettings(root: Object3D, data: ModelData) {
+        root.traverse { node ->
+            val mesh = node as? Mesh ?: return@traverse
+            mesh.castShadow = data.castShadow
+            mesh.receiveShadow = data.receiveShadow
+            applyMaterialOverrides(mesh, data.materialOverrides)
+        }
+    }
+
+    private fun applyMaterialOverrides(mesh: Mesh, overrides: List<ModelMaterialOverride>) {
+        if (overrides.isEmpty()) return
+        val material = mesh.material ?: return
+
+        val materialName = when (material) {
+            is MeshStandardMaterial -> material.name
+            is MeshBasicMaterial -> material.name
+            else -> ""
+        }
+
+        val matching = overrides.filter { override ->
+            override.target == null ||
+                override.target == mesh.name ||
+                (materialName.isNotEmpty() && override.target == materialName)
+        }
+        if (matching.isEmpty()) return
+
+        var overrideColor: Int? = null
+        var overrideMetalness: Float? = null
+        var overrideRoughness: Float? = null
+
+        for (override in matching) {
+            if (override.color != null) overrideColor = override.color
+            if (override.metalness != null) overrideMetalness = override.metalness
+            if (override.roughness != null) overrideRoughness = override.roughness
+        }
+
+        val didUpdate = overrideColor != null || overrideMetalness != null || overrideRoughness != null
+
+        overrideColor?.let { color ->
+            when (material) {
+                is MeshStandardMaterial -> material.color = intToColor(color)
+                is MeshBasicMaterial -> material.color = intToColor(color)
+            }
+        }
+
+        if (material is MeshStandardMaterial) {
+            overrideMetalness?.let { material.metalness = it }
+            overrideRoughness?.let { material.roughness = it }
+        }
+
+        if (didUpdate) {
+            material.needsUpdate = true
+        }
+
+    }
+
+    private fun createModelFallback(data: ModelData): Mesh {
+        val geometry = BoxGeometry(1f, 1f, 1f)
+        val material = MeshBasicMaterial().apply {
+            color = Color(0.9f, 0.2f, 0.2f)
+            wireframe = true
+        }
+
+        return Mesh(geometry, material).apply {
+            castShadow = data.castShadow
+            receiveShadow = data.receiveShadow
+            name = "SigilModelFallback"
+        }
+    }
+
+    private fun attachOrbitControlsHandlers(controls: OrbitControls): () -> Unit {
+        val canvasElement = canvas
+        canvasElement.style.touchAction = "none"
+
+        var activeButton: PointerButton? = null
+
+        fun pointerPosition(event: MouseEvent): Pair<Float, Float> {
+            val rect = canvasElement.getBoundingClientRect()
+            val x = event.clientX - rect.left
+            val y = event.clientY - rect.top
+            return Pair(x.toFloat(), y.toFloat())
+        }
+
+        val mouseDown: (MouseEvent) -> Unit = { event ->
+            val button = toPointerButton(event.button)
+            val (x, y) = pointerPosition(event)
+            activeButton = button
+            controls.onPointerDown(x, y, button)
+            event.preventDefault()
+        }
+
+        val mouseMove: (MouseEvent) -> Unit = mouseMove@{ event ->
+            val button = activeButton ?: return@mouseMove
+            val (x, y) = pointerPosition(event)
+            controls.onPointerMove(x, y, button)
+            event.preventDefault()
+        }
+
+        val mouseUp: (MouseEvent) -> Unit = { event ->
+            val button = activeButton ?: toPointerButton(event.button)
+            val (x, y) = pointerPosition(event)
+            controls.onPointerUp(x, y, button)
+            activeButton = null
+            event.preventDefault()
+        }
+
+        val wheelHandler: (WheelEvent) -> Unit = { event ->
+            controls.onWheel(event.deltaX.toFloat(), event.deltaY.toFloat())
+            event.preventDefault()
+        }
+
+        val contextMenu: (MouseEvent) -> Unit = { event ->
+            event.preventDefault()
+        }
+
+        val keyDown: (KeyboardEvent) -> Unit = { event ->
+            toControlsKey(event.key)?.let { key ->
+                controls.onKeyDown(key)
+                event.preventDefault()
+            }
+        }
+
+        val keyUp: (KeyboardEvent) -> Unit = { event ->
+            toControlsKey(event.key)?.let { key ->
+                controls.onKeyUp(key)
+                event.preventDefault()
+            }
+        }
+
+        canvasElement.addEventListener("mousedown", mouseDown)
+        canvasElement.addEventListener("mousemove", mouseMove)
+        canvasElement.addEventListener("mouseup", mouseUp)
+        canvasElement.addEventListener("wheel", wheelHandler)
+        canvasElement.addEventListener("contextmenu", contextMenu)
+        window.addEventListener("keydown", keyDown)
+        window.addEventListener("keyup", keyUp)
+
+        return {
+            canvasElement.removeEventListener("mousedown", mouseDown)
+            canvasElement.removeEventListener("mousemove", mouseMove)
+            canvasElement.removeEventListener("mouseup", mouseUp)
+            canvasElement.removeEventListener("wheel", wheelHandler)
+            canvasElement.removeEventListener("contextmenu", contextMenu)
+            window.removeEventListener("keydown", keyDown)
+            window.removeEventListener("keyup", keyUp)
+        }
+    }
+
+    private fun toPointerButton(button: Short): PointerButton {
+        return when (button.toInt()) {
+            1 -> PointerButton.AUXILIARY
+            2 -> PointerButton.SECONDARY
+            else -> PointerButton.PRIMARY
+        }
+    }
+
+    private fun toControlsKey(key: String): Key? {
+        return when (key.lowercase()) {
+            "w" -> Key.W
+            "a" -> Key.A
+            "s" -> Key.S
+            "d" -> Key.D
+            "q" -> Key.Q
+            "e" -> Key.E
+            "shift" -> Key.SHIFT
+            " " -> Key.SPACE
+            "space" -> Key.SPACE
+            "arrowup" -> Key.ARROW_UP
+            "arrowdown" -> Key.ARROW_DOWN
+            "arrowleft" -> Key.ARROW_LEFT
+            "arrowright" -> Key.ARROW_RIGHT
+            "escape" -> Key.ESCAPE
+            "enter" -> Key.ENTER
+            else -> null
+        }
     }
 
     private fun createLight(data: LightData) {
@@ -269,6 +540,8 @@ class SigilHydrator(
 
         // Add light to lighting system
         lightingSystem.addLight(light)
+        lights.add(light)
+        materiaScene.userData["lights"] = lights.toList()
     }
 
     private fun createGeometry(type: GeometryType, params: GeometryParams): BufferGeometry {

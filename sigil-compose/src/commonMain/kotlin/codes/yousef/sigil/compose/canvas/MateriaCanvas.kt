@@ -1,8 +1,13 @@
 package codes.yousef.sigil.compose.canvas
 
 import androidx.compose.runtime.Composable
-import io.materia.core.scene.Scene
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import io.materia.camera.PerspectiveCamera
+import io.materia.controls.CameraControls
+import io.materia.core.scene.Scene
+import io.materia.renderer.Renderer
 
 /**
  * Entry point for rendering Materia 3D scenes within Compose.
@@ -45,6 +50,24 @@ class MateriaCanvasState {
         internal set
 
     /**
+     * Platform canvas handle (HTMLCanvasElement on JS, AWT Canvas on JVM).
+     */
+    var canvas: Any? by mutableStateOf(null)
+        internal set
+
+    /**
+     * Active renderer instance.
+     */
+    var renderer: Renderer? = null
+        internal set
+
+    /**
+     * Active camera used for rendering.
+     */
+    var camera: PerspectiveCamera? by mutableStateOf(null)
+        internal set
+
+    /**
      * Whether the canvas is currently initialized and rendering.
      */
     var isInitialized: Boolean = false
@@ -61,6 +84,18 @@ class MateriaCanvasState {
      */
     var elapsedTime: Float = 0f
         internal set
+
+    private val controls = mutableSetOf<CameraControls>()
+
+    internal fun registerControls(controls: CameraControls) {
+        this.controls.add(controls)
+    }
+
+    internal fun unregisterControls(controls: CameraControls) {
+        this.controls.remove(controls)
+    }
+
+    internal fun controlsSnapshot(): List<CameraControls> = controls.toList()
 }
 
 /**

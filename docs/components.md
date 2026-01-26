@@ -125,3 +125,23 @@ SpotLight(
     angle = 0.5f
 )
 ```
+
+## Models & Controls
+
+Load glTF assets and add orbit-style camera controls:
+
+```kotlin
+MateriaCanvas(modifier = Modifier.fillMaxSize()) {
+    Model(
+        url = "assets/bedroom.glb",
+        position = Vector3(0f, 0f, 0f),
+        scale = Vector3(1f, 1f, 1f)
+    )
+
+    OrbitControls(
+        target = Vector3(0f, 1f, 0f),
+        minDistance = 2f,
+        maxDistance = 12f
+    )
+}
+```

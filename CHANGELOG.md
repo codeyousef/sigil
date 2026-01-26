@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.3.0.0] - 2026-01-26
+
+### Added
+
+- Schema nodes for glTF models and orbit controls, including material overrides
+- Summon model/controls components with JS hydration for GLTF loading, shadows, and wireframe fallback on errors
+- Compose `Model` and `OrbitControls` composables with JS/JVM input bindings and async loading support
+- Materia canvas wiring for renderer creation, render loop integration, and lighting context propagation
+
+### Changed
+
+- Compose canvas implementations now update controls each frame and apply lighting data before rendering
+- Documentation includes a model + orbit controls usage example
+
 ## [0.2.9.1] - 2025-12-26
 
 ### Added

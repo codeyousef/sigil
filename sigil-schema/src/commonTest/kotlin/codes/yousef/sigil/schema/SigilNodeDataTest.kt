@@ -24,9 +24,11 @@ class SigilNodeDataTest {
     fun polymorphicSerialization_differentTypesHaveCorrectDiscriminators() {
         val nodes = listOf(
             MeshData(id = "mesh") to "mesh",
+            ModelData(id = "model", url = "models/room.glb") to "model",
             GroupData(id = "group") to "group",
             LightData(id = "light") to "light",
-            CameraData(id = "camera") to "camera"
+            CameraData(id = "camera") to "camera",
+            ControlsData(id = "controls") to "controls"
         )
         
         nodes.forEach { (node, expectedType) ->

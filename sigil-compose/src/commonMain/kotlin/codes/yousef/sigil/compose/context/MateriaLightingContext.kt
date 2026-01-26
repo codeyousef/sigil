@@ -3,9 +3,10 @@ package codes.yousef.sigil.compose.context
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.compositionLocalOf
+import io.materia.core.scene.Scene
+import io.materia.lighting.DefaultLightingSystem
 import io.materia.lighting.Light
 import io.materia.lighting.LightingSystem
-import io.materia.lighting.DefaultLightingSystem
 
 /**
  * Context for managing lights in a Materia scene.
@@ -50,6 +51,13 @@ class MateriaLightingContext(
             lightingSystem.removeLight(light)
         }
         managedLights.clear()
+    }
+
+    /**
+     * Apply the current lights list to a scene for rendering.
+     */
+    fun applyToScene(scene: Scene) {
+        scene.userData["lights"] = managedLights.toList()
     }
     
     /**

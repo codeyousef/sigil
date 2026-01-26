@@ -124,6 +124,100 @@ class SigilSceneBuilder {
     }
 
     /**
+     * Add a glTF model node to the scene
+     */
+    fun model(
+        id: String = generateNodeId(),
+        url: String,
+        position: List<Float> = listOf(0f, 0f, 0f),
+        rotation: List<Float> = listOf(0f, 0f, 0f),
+        scale: List<Float> = listOf(1f, 1f, 1f),
+        visible: Boolean = true,
+        name: String? = null,
+        castShadow: Boolean = true,
+        receiveShadow: Boolean = true,
+        materialOverrides: List<ModelMaterialOverride> = emptyList()
+    ): ModelData {
+        val model = ModelData(
+            id = id,
+            position = position,
+            rotation = rotation,
+            scale = scale,
+            visible = visible,
+            name = name,
+            url = url,
+            castShadow = castShadow,
+            receiveShadow = receiveShadow,
+            materialOverrides = materialOverrides
+        )
+        nodes.add(model)
+        return model
+    }
+
+    /**
+     * Add a camera controls node to the scene
+     */
+    fun controls(
+        id: String = generateNodeId(),
+        position: List<Float> = listOf(0f, 0f, 0f),
+        rotation: List<Float> = listOf(0f, 0f, 0f),
+        scale: List<Float> = listOf(1f, 1f, 1f),
+        visible: Boolean = true,
+        name: String? = null,
+        controlsType: ControlsType = ControlsType.ORBIT,
+        target: List<Float> = listOf(0f, 0f, 0f),
+        enableDamping: Boolean = true,
+        dampingFactor: Float = 0.05f,
+        minDistance: Float = 1f,
+        maxDistance: Float = 1000f,
+        minPolarAngle: Float = 0f,
+        maxPolarAngle: Float = kotlin.math.PI.toFloat(),
+        minAzimuthAngle: Float = -Float.MAX_VALUE,
+        maxAzimuthAngle: Float = Float.MAX_VALUE,
+        rotateSpeed: Float = 1f,
+        zoomSpeed: Float = 1f,
+        panSpeed: Float = 1f,
+        keyboardSpeed: Float = 1f,
+        enableRotate: Boolean = true,
+        enableZoom: Boolean = true,
+        enablePan: Boolean = true,
+        enableKeys: Boolean = true,
+        autoRotate: Boolean = false,
+        autoRotateSpeed: Float = 2f
+    ): ControlsData {
+        val controls = ControlsData(
+            id = id,
+            position = position,
+            rotation = rotation,
+            scale = scale,
+            visible = visible,
+            name = name,
+            controlsType = controlsType,
+            target = target,
+            enableDamping = enableDamping,
+            dampingFactor = dampingFactor,
+            minDistance = minDistance,
+            maxDistance = maxDistance,
+            minPolarAngle = minPolarAngle,
+            maxPolarAngle = maxPolarAngle,
+            minAzimuthAngle = minAzimuthAngle,
+            maxAzimuthAngle = maxAzimuthAngle,
+            rotateSpeed = rotateSpeed,
+            zoomSpeed = zoomSpeed,
+            panSpeed = panSpeed,
+            keyboardSpeed = keyboardSpeed,
+            enableRotate = enableRotate,
+            enableZoom = enableZoom,
+            enablePan = enablePan,
+            enableKeys = enableKeys,
+            autoRotate = autoRotate,
+            autoRotateSpeed = autoRotateSpeed
+        )
+        nodes.add(controls)
+        return controls
+    }
+
+    /**
      * Add a group of nodes
      */
     fun group(
@@ -250,6 +344,94 @@ class SigilGroupBuilder {
         )
         children.add(light)
         return light
+    }
+
+    fun model(
+        id: String = generateNodeId(),
+        url: String,
+        position: List<Float> = listOf(0f, 0f, 0f),
+        rotation: List<Float> = listOf(0f, 0f, 0f),
+        scale: List<Float> = listOf(1f, 1f, 1f),
+        visible: Boolean = true,
+        name: String? = null,
+        castShadow: Boolean = true,
+        receiveShadow: Boolean = true,
+        materialOverrides: List<ModelMaterialOverride> = emptyList()
+    ): ModelData {
+        val model = ModelData(
+            id = id,
+            position = position,
+            rotation = rotation,
+            scale = scale,
+            visible = visible,
+            name = name,
+            url = url,
+            castShadow = castShadow,
+            receiveShadow = receiveShadow,
+            materialOverrides = materialOverrides
+        )
+        children.add(model)
+        return model
+    }
+
+    fun controls(
+        id: String = generateNodeId(),
+        position: List<Float> = listOf(0f, 0f, 0f),
+        rotation: List<Float> = listOf(0f, 0f, 0f),
+        scale: List<Float> = listOf(1f, 1f, 1f),
+        visible: Boolean = true,
+        name: String? = null,
+        controlsType: ControlsType = ControlsType.ORBIT,
+        target: List<Float> = listOf(0f, 0f, 0f),
+        enableDamping: Boolean = true,
+        dampingFactor: Float = 0.05f,
+        minDistance: Float = 1f,
+        maxDistance: Float = 1000f,
+        minPolarAngle: Float = 0f,
+        maxPolarAngle: Float = kotlin.math.PI.toFloat(),
+        minAzimuthAngle: Float = -Float.MAX_VALUE,
+        maxAzimuthAngle: Float = Float.MAX_VALUE,
+        rotateSpeed: Float = 1f,
+        zoomSpeed: Float = 1f,
+        panSpeed: Float = 1f,
+        keyboardSpeed: Float = 1f,
+        enableRotate: Boolean = true,
+        enableZoom: Boolean = true,
+        enablePan: Boolean = true,
+        enableKeys: Boolean = true,
+        autoRotate: Boolean = false,
+        autoRotateSpeed: Float = 2f
+    ): ControlsData {
+        val controls = ControlsData(
+            id = id,
+            position = position,
+            rotation = rotation,
+            scale = scale,
+            visible = visible,
+            name = name,
+            controlsType = controlsType,
+            target = target,
+            enableDamping = enableDamping,
+            dampingFactor = dampingFactor,
+            minDistance = minDistance,
+            maxDistance = maxDistance,
+            minPolarAngle = minPolarAngle,
+            maxPolarAngle = maxPolarAngle,
+            minAzimuthAngle = minAzimuthAngle,
+            maxAzimuthAngle = maxAzimuthAngle,
+            rotateSpeed = rotateSpeed,
+            zoomSpeed = zoomSpeed,
+            panSpeed = panSpeed,
+            keyboardSpeed = keyboardSpeed,
+            enableRotate = enableRotate,
+            enableZoom = enableZoom,
+            enablePan = enablePan,
+            enableKeys = enableKeys,
+            autoRotate = autoRotate,
+            autoRotateSpeed = autoRotateSpeed
+        )
+        children.add(controls)
+        return controls
     }
 
     fun group(
