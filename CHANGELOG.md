@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.3.3.0] - 2026-02-27
+
+### Added
+
+- First-person camera controls: `SigilFirstPersonControls` Summon composable with WASD movement, pointer lock, gravity, and collision support
+- `FIRST_PERSON` controls type in schema with fields for moveSpeed, lookSpeed, pointerLock, heightOffset, enableGravity, groundHeight, enableCollision, and collisionRadius
+- `SigilHydrator` global API exported to `window.SigilHydrator` and `window.Sigil.Hydrator` for 3D scene hydration from JavaScript
+- First-person controls JS input handlers with pointer lock, keyboard (WASD), and mouse look support
+
+### Changed
+
+- 3D scene renderer now tries WebGPU first and falls back to WebGL automatically (previously WebGPU-only)
+- `SigilHydrator` renderer field generalized from `WebGPURenderer` to `Renderer` interface
+- Canvas hydration now reuses server-rendered `<canvas>` elements directly instead of always creating new ones inside `<div>` containers
+- Camera properties (fov, near, far, position, lookAt) are now applied from `CameraData` schema nodes during hydration
+- **Materia dependency**: Updated from 0.3.4.6 to 0.3.5.0
+- Documentation dependency snippets updated to version 0.3.3.0
+
 ## [0.3.0.0] - 2026-01-26
 
 ### Added

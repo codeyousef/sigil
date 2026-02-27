@@ -25,6 +25,7 @@ import io.materia.material.MeshBasicMaterial
 import io.materia.material.MeshStandardMaterial
 import io.materia.camera.PerspectiveCamera
 import io.materia.controls.ControlsConfig
+import io.materia.controls.FirstPersonControls
 import io.materia.controls.Key
 import io.materia.controls.OrbitControls
 import io.materia.controls.PointerButton
@@ -49,7 +50,9 @@ import io.materia.lighting.SpotLightImpl
 import io.materia.lighting.HemisphereLightImpl
 import io.materia.lighting.Light
 import io.materia.lighting.DefaultLightingSystem
+import io.materia.renderer.Renderer
 import io.materia.renderer.webgpu.WebGPURenderer
+import io.materia.renderer.webgl.WebGLRenderer
 import io.materia.renderer.RendererConfig
 import kotlinx.browser.document
 import kotlinx.browser.window
@@ -73,7 +76,7 @@ class SigilHydrator(
 ) {
     private val materiaScene = Scene()
     private val lightingSystem = DefaultLightingSystem()
-    private var renderer: WebGPURenderer? = null
+    private var renderer: Renderer? = null
     private var animationFrameId: Int = 0
     private var running = false
     private var camera: PerspectiveCamera? = null
@@ -81,6 +84,7 @@ class SigilHydrator(
     private val lights = mutableListOf<Light>()
     private val gltfLoader = GLTFLoader()
     private var orbitControls: OrbitControls? = null
+    private var firstPersonControls: FirstPersonControls? = null
     private var controlsCleanup: (() -> Unit)? = null
     private var lastFrameTimeMs: Double = 0.0
 
@@ -108,20 +112,60 @@ class SigilHydrator(
             }
         }
 
-        // Create renderer
-        val r = WebGPURenderer(canvas)
+        // Create renderer — try WebGPU first, fall back to WebGL
         val config = RendererConfig()
-        val result = r.initialize(config)
-        
-        when (result) {
-            is io.materia.core.Result.Success -> {
-                renderer = r
-                r.resize(canvas.width, canvas.height)
+        var initialized = false
+
+        // Try WebGPU first
+        try {
+            val gpu = js("navigator.gpu")
+            if (gpu != null && gpu != undefined) {
+                val r = WebGPURenderer(canvas)
+                val result = r.initialize(config)
+                when (result) {
+                    is io.materia.core.Result.Success -> {
+                        renderer = r
+                        r.resize(canvas.width, canvas.height)
+                        r.clearColor = intToColor(sceneData.settings.backgroundColor)
+                        initialized = true
+                        console.log("Sigil: Initialized WebGPU renderer")
+                    }
+                    is io.materia.core.Result.Error -> {
+                        console.warn("Sigil: WebGPU initialization failed (${result.message}), trying WebGL fallback...")
+                        r.dispose()
+                    }
+                }
+            } else {
+                console.log("Sigil: WebGPU not available, trying WebGL fallback...")
             }
-            is io.materia.core.Result.Error -> {
-                console.error("Sigil: Failed to initialize WebGPU renderer: ${result.message}")
-                return
+        } catch (e: Throwable) {
+            console.warn("Sigil: WebGPU error (${e.message}), trying WebGL fallback...")
+        }
+
+        // Fallback to WebGL
+        if (!initialized) {
+            try {
+                val r = WebGLRenderer(canvas)
+                val result = r.initialize(config)
+                when (result) {
+                    is io.materia.core.Result.Success -> {
+                        renderer = r
+                        r.resize(canvas.width, canvas.height)
+                        initialized = true
+                        console.log("Sigil: Initialized WebGL renderer (fallback)")
+                    }
+                    is io.materia.core.Result.Error -> {
+                        console.error("Sigil: WebGL initialization also failed: ${result.message}")
+                    }
+                }
+            } catch (e: Throwable) {
+                console.error("Sigil: WebGL fallback error: ${e.message}")
             }
+        }
+
+        if (!initialized) {
+            console.error("Sigil: No renderer could be initialized (tried WebGPU and WebGL)")
+            return
         }
 
         // Handle resize
@@ -155,12 +199,13 @@ class SigilHydrator(
             lastFrameTimeMs = now
 
             orbitControls?.update(deltaSeconds)
+            firstPersonControls?.update(deltaSeconds)
             
             materiaScene.updateMatrixWorld(true)
             cam.updateMatrixWorld()
             cam.updateProjectionMatrix()
             r.render(materiaScene, cam)
-            
+
             animationFrameId = window.requestAnimationFrame { renderFrame() }
         }
         
@@ -180,6 +225,7 @@ class SigilHydrator(
         controlsCleanup?.invoke()
         controlsCleanup = null
         orbitControls = null
+        firstPersonControls = null
         nodeMap.clear()
         renderer?.dispose()
         renderer = null
@@ -201,7 +247,16 @@ class SigilHydrator(
                 null
             }
             is CameraData -> {
-                // Cameras are handled separately
+                camera?.let { cam ->
+                    cam.fov = nodeData.fov
+                    cam.near = nodeData.near
+                    cam.far = nodeData.far
+                    cam.position.set(nodeData.position[0], nodeData.position[1], nodeData.position[2])
+                    nodeData.lookAt?.let { target ->
+                        cam.lookAt(Vector3(target[0], target[1], target[2]))
+                    }
+                    cam.updateProjectionMatrix()
+                }
                 null
             }
             is ControlsData -> {
@@ -264,36 +319,65 @@ class SigilHydrator(
 
     private fun createControls(data: ControlsData) {
         val cam = camera ?: return
-        if (data.controlsType != ControlsType.ORBIT) return
 
-        val config = ControlsConfig(
-            minDistance = data.minDistance,
-            maxDistance = data.maxDistance,
-            minPolarAngle = data.minPolarAngle,
-            maxPolarAngle = data.maxPolarAngle,
-            minAzimuthAngle = data.minAzimuthAngle,
-            maxAzimuthAngle = data.maxAzimuthAngle,
-            rotateSpeed = data.rotateSpeed,
-            zoomSpeed = data.zoomSpeed,
-            panSpeed = data.panSpeed,
-            keyboardSpeed = data.keyboardSpeed,
-            enableRotate = data.enableRotate,
-            enableZoom = data.enableZoom,
-            enablePan = data.enablePan,
-            enableKeys = data.enableKeys,
-            enableDamping = data.enableDamping,
-            dampingFactor = data.dampingFactor,
-            autoRotate = data.autoRotate,
-            autoRotateSpeed = data.autoRotateSpeed
-        )
-
-        val controls = OrbitControls(cam, config).apply {
-            target = Vector3(data.target[0], data.target[1], data.target[2])
-        }
-
-        orbitControls = controls
         controlsCleanup?.invoke()
-        controlsCleanup = attachOrbitControlsHandlers(controls)
+
+        when (data.controlsType) {
+            ControlsType.ORBIT -> {
+                val config = ControlsConfig(
+                    minDistance = data.minDistance,
+                    maxDistance = data.maxDistance,
+                    minPolarAngle = data.minPolarAngle,
+                    maxPolarAngle = data.maxPolarAngle,
+                    minAzimuthAngle = data.minAzimuthAngle,
+                    maxAzimuthAngle = data.maxAzimuthAngle,
+                    rotateSpeed = data.rotateSpeed,
+                    zoomSpeed = data.zoomSpeed,
+                    panSpeed = data.panSpeed,
+                    keyboardSpeed = data.keyboardSpeed,
+                    enableRotate = data.enableRotate,
+                    enableZoom = data.enableZoom,
+                    enablePan = data.enablePan,
+                    enableKeys = data.enableKeys,
+                    enableDamping = data.enableDamping,
+                    dampingFactor = data.dampingFactor,
+                    autoRotate = data.autoRotate,
+                    autoRotateSpeed = data.autoRotateSpeed
+                )
+
+                val controls = OrbitControls(cam, config).apply {
+                    target = Vector3(data.target[0], data.target[1], data.target[2])
+                }
+
+                orbitControls = controls
+                controlsCleanup = attachOrbitControlsHandlers(controls)
+            }
+
+            ControlsType.FIRST_PERSON -> {
+                val config = ControlsConfig(
+                    rotateSpeed = data.lookSpeed / 0.002f,
+                    enableKeys = true,
+                    enableRotate = true
+                )
+
+                val controls = FirstPersonControls(cam, config).apply {
+                    walkSpeed = data.moveSpeed
+                    mouseSensitivity = data.lookSpeed
+                    enableGravity = data.enableGravity
+                    groundHeight = data.groundHeight + data.heightOffset
+                    enableCollision = data.enableCollision
+                    collisionRadius = data.collisionRadius
+                }
+
+                // Apply initial position from data
+                if (data.position != listOf(0f, 0f, 0f)) {
+                    controls.setPosition(Vector3(data.position[0], data.position[1], data.position[2]))
+                }
+
+                firstPersonControls = controls
+                controlsCleanup = attachFirstPersonControlsHandlers(controls, data.pointerLock)
+            }
+        }
     }
 
     private fun createGroup(data: GroupData): Group {
@@ -471,6 +555,117 @@ class SigilHydrator(
         }
     }
 
+    private fun attachFirstPersonControlsHandlers(
+        controls: FirstPersonControls,
+        enablePointerLock: Boolean
+    ): () -> Unit {
+        val canvasElement = canvas
+        canvasElement.style.setProperty("touch-action", "none")
+
+        var lastMouseX = 0f
+        var lastMouseY = 0f
+        var hasLastMouse = false
+
+        val clickHandler: (Event) -> Unit = clickHandler@{ event ->
+            if (!enablePointerLock) return@clickHandler
+            val mouseEvent = event as? MouseEvent ?: return@clickHandler
+            mouseEvent.preventDefault()
+            // Request pointer lock on canvas
+            canvasElement.asDynamic().requestPointerLock()
+        }
+
+        val pointerLockChange: (Event) -> Unit = {
+            val locked = document.asDynamic().pointerLockElement == canvasElement
+            if (locked) {
+                controls.requestPointerLock()
+            } else {
+                controls.exitPointerLock()
+            }
+        }
+
+        val mouseDown: (Event) -> Unit = mouseDown@{ event ->
+            val mouseEvent = event as? MouseEvent ?: return@mouseDown
+            val rect = canvasElement.getBoundingClientRect()
+            val x = (mouseEvent.clientX - rect.left).toFloat()
+            val y = (mouseEvent.clientY - rect.top).toFloat()
+            controls.onPointerDown(x, y, toPointerButton(mouseEvent.button))
+            lastMouseX = x
+            lastMouseY = y
+            hasLastMouse = true
+            mouseEvent.preventDefault()
+        }
+
+        val mouseMove: (Event) -> Unit = mouseMove@{ event ->
+            val mouseEvent = event as? MouseEvent ?: return@mouseMove
+            if (controls.isPointerLocked()) {
+                // Use movementX/movementY for pointer lock mode
+                val dx = (mouseEvent.asDynamic().movementX as? Number)?.toFloat() ?: 0f
+                val dy = (mouseEvent.asDynamic().movementY as? Number)?.toFloat() ?: 0f
+                controls.onPointerMove(dx, dy, PointerButton.PRIMARY)
+            } else {
+                val rect = canvasElement.getBoundingClientRect()
+                val x = (mouseEvent.clientX - rect.left).toFloat()
+                val y = (mouseEvent.clientY - rect.top).toFloat()
+                if (hasLastMouse) {
+                    controls.onPointerMove(x - lastMouseX, y - lastMouseY, PointerButton.PRIMARY)
+                }
+                lastMouseX = x
+                lastMouseY = y
+                hasLastMouse = true
+            }
+            mouseEvent.preventDefault()
+        }
+
+        val mouseUp: (Event) -> Unit = mouseUp@{ event ->
+            val mouseEvent = event as? MouseEvent ?: return@mouseUp
+            val rect = canvasElement.getBoundingClientRect()
+            val x = (mouseEvent.clientX - rect.left).toFloat()
+            val y = (mouseEvent.clientY - rect.top).toFloat()
+            controls.onPointerUp(x, y, toPointerButton(mouseEvent.button))
+            mouseEvent.preventDefault()
+        }
+
+        val contextMenu: (Event) -> Unit = contextMenu@{ event ->
+            event.preventDefault()
+        }
+
+        val keyDown: (Event) -> Unit = keyDown@{ event ->
+            val keyEvent = event as? KeyboardEvent ?: return@keyDown
+            toControlsKey(keyEvent.key)?.let { key ->
+                controls.onKeyDown(key)
+                keyEvent.preventDefault()
+            }
+        }
+
+        val keyUp: (Event) -> Unit = keyUp@{ event ->
+            val keyEvent = event as? KeyboardEvent ?: return@keyUp
+            toControlsKey(keyEvent.key)?.let { key ->
+                controls.onKeyUp(key)
+                keyEvent.preventDefault()
+            }
+        }
+
+        canvasElement.addEventListener("click", clickHandler)
+        canvasElement.addEventListener("mousedown", mouseDown)
+        canvasElement.addEventListener("mousemove", mouseMove)
+        canvasElement.addEventListener("mouseup", mouseUp)
+        canvasElement.addEventListener("contextmenu", contextMenu)
+        window.addEventListener("keydown", keyDown)
+        window.addEventListener("keyup", keyUp)
+        document.addEventListener("pointerlockchange", pointerLockChange)
+
+        return {
+            canvasElement.removeEventListener("click", clickHandler)
+            canvasElement.removeEventListener("mousedown", mouseDown)
+            canvasElement.removeEventListener("mousemove", mouseMove)
+            canvasElement.removeEventListener("mouseup", mouseUp)
+            canvasElement.removeEventListener("contextmenu", contextMenu)
+            window.removeEventListener("keydown", keyDown)
+            window.removeEventListener("keyup", keyUp)
+            document.removeEventListener("pointerlockchange", pointerLockChange)
+        }
+    }
+
     private fun toPointerButton(button: Short): PointerButton {
         return when (button.toInt()) {
             1 -> PointerButton.AUXILIARY
@@ -638,17 +833,28 @@ object SigilHydratorGlobal {
     fun hydrate(canvasId: String, sceneData: dynamic) {
         val jsonString = JSON.stringify(sceneData)
         val scene = SigilScene.fromJson(jsonString)
-        val container = document.getElementById(canvasId) as? HTMLDivElement ?: return
+        val element = document.getElementById(canvasId) ?: return
 
-        val canvas = document.createElement("canvas") as HTMLCanvasElement
-        canvas.style.width = "100%"
-        canvas.style.height = "100%"
-        container.innerHTML = ""
-        container.appendChild(canvas)
+        val canvas: HTMLCanvasElement = when (element) {
+            is HTMLCanvasElement -> element  // Server-rendered canvas — reuse
+            is HTMLDivElement -> {           // Legacy div placeholder — create canvas
+                val c = document.createElement("canvas") as HTMLCanvasElement
+                c.style.width = "100%"
+                c.style.height = "100%"
+                c.style.display = "block"
+                element.style.backgroundColor = "transparent"
+                element.innerHTML = ""
+                element.appendChild(c)
+                c
+            }
+            else -> return
+        }
 
-        val rect = container.getBoundingClientRect()
-        canvas.width = rect.width.toInt()
-        canvas.height = rect.height.toInt()
+        val rect = (canvas.parentElement ?: canvas).let {
+            it.asDynamic().getBoundingClientRect()
+        }
+        canvas.width = (rect.width as Number).toInt()
+        canvas.height = (rect.height as Number).toInt()
 
         scope.launch {
             val hydrator = SigilHydrator(canvas, scene)

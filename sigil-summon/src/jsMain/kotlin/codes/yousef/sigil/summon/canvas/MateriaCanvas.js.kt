@@ -69,26 +69,34 @@ private fun performHydration(canvasId: String, fallbackScene: SigilScene) {
         fallbackScene
     }
 
-    // Get or create the container element
-    val container = document.getElementById(canvasId) as? HTMLDivElement
+    // Get the element — may be a server-rendered <canvas> or a legacy <div>
+    val element = document.getElementById(canvasId)
         ?: run {
-            console.error("Sigil: Container element '$canvasId' not found")
+            console.error("Sigil: Element '$canvasId' not found")
             return
         }
 
-    // Create canvas element
-    val canvas = document.createElement("canvas") as HTMLCanvasElement
-    canvas.style.width = "100%"
-    canvas.style.height = "100%"
-
-    // Clear container and add canvas
-    container.innerHTML = ""
-    container.appendChild(canvas)
+    val canvas: HTMLCanvasElement = when (element) {
+        is HTMLCanvasElement -> element  // Server-rendered canvas — reuse
+        is HTMLDivElement -> {           // Legacy div placeholder — create canvas
+            val c = document.createElement("canvas") as HTMLCanvasElement
+            c.style.width = "100%"
+            c.style.height = "100%"
+            c.style.display = "block"
+            element.innerHTML = ""
+            element.appendChild(c)
+            c
+        }
+        else -> {
+            console.error("Sigil: Element '$canvasId' is not a canvas or div")
+            return
+        }
+    }
 
     // Set canvas size
-    val rect = container.getBoundingClientRect()
-    canvas.width = rect.width.toInt()
-    canvas.height = rect.height.toInt()
+    val rect = (canvas.parentElement ?: canvas).asDynamic().getBoundingClientRect()
+    canvas.width = (rect.width as Number).toInt()
+    canvas.height = (rect.height as Number).toInt()
 
     // Initialize Materia (async)
     scope.launch {

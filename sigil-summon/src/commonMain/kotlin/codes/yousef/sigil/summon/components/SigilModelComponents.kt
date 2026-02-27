@@ -110,3 +110,52 @@ fun SigilOrbitControls(
 
     return ""
 }
+
+/**
+ * Summon component for first-person camera controls.
+ *
+ * @param moveSpeed Walking speed in units per second
+ * @param lookSpeed Mouse sensitivity for camera look
+ * @param pointerLock Whether to use pointer lock for mouse capture
+ * @param position Initial camera position [x, y, z]
+ * @param heightOffset Camera height above ground
+ * @param enableGravity Whether gravity is applied
+ * @param groundHeight Y position of the ground plane
+ * @param enableCollision Whether collision detection is enabled
+ * @param collisionRadius Collision sphere radius
+ * @param name Optional name for debugging
+ */
+@Composable
+fun SigilFirstPersonControls(
+    moveSpeed: Float = 5f,
+    lookSpeed: Float = 0.002f,
+    pointerLock: Boolean = false,
+    position: List<Float> = listOf(0f, 1.6f, 0f),
+    heightOffset: Float = 1.6f,
+    enableGravity: Boolean = true,
+    groundHeight: Float = 0f,
+    enableCollision: Boolean = false,
+    collisionRadius: Float = 0.5f,
+    name: String? = null
+): String {
+    val context = SigilSummonContext.current()
+
+    val controlsData = ControlsData(
+        id = generateNodeId(),
+        position = position,
+        name = name,
+        controlsType = ControlsType.FIRST_PERSON,
+        moveSpeed = moveSpeed,
+        lookSpeed = lookSpeed,
+        pointerLock = pointerLock,
+        heightOffset = heightOffset,
+        enableGravity = enableGravity,
+        groundHeight = groundHeight,
+        enableCollision = enableCollision,
+        collisionRadius = collisionRadius
+    )
+
+    context.registerNode(controlsData)
+
+    return ""
+}

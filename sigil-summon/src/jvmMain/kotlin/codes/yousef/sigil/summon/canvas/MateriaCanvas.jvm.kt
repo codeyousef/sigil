@@ -56,8 +56,8 @@ actual fun MateriaCanvas(
         // Container div for the canvas
         append("""<div id="$id-container" style="width: $width; height: $height; position: relative;">""")
 
-        // Initial div that the hydration script will replace with a WebGPU canvas
-        append("""<div id="$id" style="width: 100%; height: 100%; background-color: ${intToHexColor(backgroundColor)};"></div>""")
+        // Server-render a real canvas element (matching SigilEffectCanvas pattern)
+        append("""<canvas id="$id" style="width: 100%; height: 100%; display: block;"></canvas>""")
 
         // Embedded scene data for hydration
         append("""<script type="application/json" id="$id-data">$escapedJson</script>""")

@@ -321,7 +321,17 @@ data class ControlsData(
     val enablePan: Boolean = true,
     val enableKeys: Boolean = true,
     val autoRotate: Boolean = false,
-    val autoRotateSpeed: Float = 2f
+    val autoRotateSpeed: Float = 2f,
+
+    // First-person controls fields
+    val moveSpeed: Float = 5f,
+    val lookSpeed: Float = 0.002f,
+    val pointerLock: Boolean = false,
+    val heightOffset: Float = 1.6f,
+    val enableGravity: Boolean = true,
+    val groundHeight: Float = 0f,
+    val enableCollision: Boolean = false,
+    val collisionRadius: Float = 0.5f
 ) : SigilNodeData()
 
 /**
@@ -405,5 +415,6 @@ enum class CameraType {
  */
 @Serializable
 enum class ControlsType {
-    @SerialName("ORBIT") ORBIT
+    @SerialName("ORBIT") ORBIT,
+    @SerialName("FIRST_PERSON") FIRST_PERSON
 }

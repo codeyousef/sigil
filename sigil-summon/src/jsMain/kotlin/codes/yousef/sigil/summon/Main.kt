@@ -1,5 +1,6 @@
 package codes.yousef.sigil.summon
 
+import codes.yousef.sigil.summon.canvas.SigilHydratorGlobal
 import codes.yousef.sigil.summon.effects.SigilEffectHydratorJs
 import kotlinx.browser.document
 import kotlinx.browser.window
@@ -32,9 +33,17 @@ fun main() {
         SigilEffectHydratorJs.getAvailableRenderer()
     }
     
+    // Export SigilHydrator (MateriaCanvas 3D scenes) to window
+    js("window.SigilHydrator = {}")
+    val sceneHydrator = js("window.SigilHydrator")
+    sceneHydrator.hydrate = { canvasId: String, sceneData: dynamic ->
+        SigilHydratorGlobal.hydrate(canvasId, sceneData)
+    }
+
     // Also export under Sigil namespace for convenience
     js("window.Sigil = window.Sigil || {}")
     js("window.Sigil.EffectHydrator = window.SigilEffectHydrator")
+    js("window.Sigil.Hydrator = window.SigilHydrator")
     
     console.log("[Sigil] Hydration bundle loaded, renderer: ${SigilEffectHydratorJs.getAvailableRenderer()}")
     
