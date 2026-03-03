@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.3.3.1] - 2026-03-03
+
+### Fixed
+
+- Pass canvas texture format to `WebGPUEffectComposer` to fix format mismatch on devices that don't default to `bgra8unorm`
+
 ## [0.3.3.0] - 2026-02-27
 
 ### Added

@@ -71,7 +71,8 @@ class WebGPURenderer(
             webGPUComposer = WebGPUEffectComposer(
                 device = device.unsafeCast<io.materia.renderer.webgpu.GPUDevice>(),
                 width = canvas.width,
-                height = canvas.height
+                height = canvas.height,
+                format = format.toString()
             )
             
             // Create FullScreenEffectPass for each effect in the composer data
