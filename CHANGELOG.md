@@ -4,6 +4,7 @@
 
 ### Changed
 
+- Updated Kotlin to 2.3.0 for compatibility with Summon 0.7.0.2
 - **Materia dependency**: Updated from 0.3.5.0 to 0.3.6.0
 - **Summon dependency**: Updated from 0.6.0 to 0.7.0.2
 
