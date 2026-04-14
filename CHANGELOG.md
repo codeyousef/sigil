@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.3.3] - 2026-04-14
+
+### Changed
+
+- **Materia dependency**: Updated from 0.3.6.0 to 0.4.0.0
+- Documentation dependency snippets updated to version 0.3.3.3
+
 ## [0.3.3.2] - 2026-04-12
 
 ### Changed
