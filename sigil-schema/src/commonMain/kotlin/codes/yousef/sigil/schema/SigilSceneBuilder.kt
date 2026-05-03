@@ -28,6 +28,8 @@ class SigilSceneBuilder {
         geometryParams: GeometryParams = GeometryParams(),
         visible: Boolean = true,
         name: String? = null,
+        interaction: InteractionMetadata? = null,
+        animations: List<SceneAnimationData> = emptyList(),
         castShadow: Boolean = true,
         receiveShadow: Boolean = true
     ): MeshData {
@@ -38,6 +40,8 @@ class SigilSceneBuilder {
             scale = scale,
             visible = visible,
             name = name,
+            interaction = interaction,
+            animations = animations,
             geometryType = geometryType,
             geometryParams = geometryParams,
             materialColor = color,
@@ -66,7 +70,9 @@ class SigilSceneBuilder {
         castShadow: Boolean = false,
         target: List<Float> = listOf(0f, 0f, 0f),
         visible: Boolean = true,
-        name: String? = null
+        name: String? = null,
+        interaction: InteractionMetadata? = null,
+        animations: List<SceneAnimationData> = emptyList()
     ): LightData {
         val light = LightData(
             id = id,
@@ -75,6 +81,8 @@ class SigilSceneBuilder {
             scale = listOf(1f, 1f, 1f),
             visible = visible,
             name = name,
+            interaction = interaction,
+            animations = animations,
             lightType = lightType,
             color = color,
             intensity = intensity,
@@ -103,7 +111,9 @@ class SigilSceneBuilder {
         far: Float = 1000f,
         lookAt: List<Float>? = null,
         visible: Boolean = true,
-        name: String? = null
+        name: String? = null,
+        interaction: InteractionMetadata? = null,
+        animations: List<SceneAnimationData> = emptyList()
     ): CameraData {
         val camera = CameraData(
             id = id,
@@ -112,6 +122,8 @@ class SigilSceneBuilder {
             scale = listOf(1f, 1f, 1f),
             visible = visible,
             name = name,
+            interaction = interaction,
+            animations = animations,
             cameraType = cameraType,
             fov = fov,
             aspect = aspect,
@@ -134,6 +146,8 @@ class SigilSceneBuilder {
         scale: List<Float> = listOf(1f, 1f, 1f),
         visible: Boolean = true,
         name: String? = null,
+        interaction: InteractionMetadata? = null,
+        animations: List<SceneAnimationData> = emptyList(),
         castShadow: Boolean = true,
         receiveShadow: Boolean = true,
         materialOverrides: List<ModelMaterialOverride> = emptyList()
@@ -145,6 +159,8 @@ class SigilSceneBuilder {
             scale = scale,
             visible = visible,
             name = name,
+            interaction = interaction,
+            animations = animations,
             url = url,
             castShadow = castShadow,
             receiveShadow = receiveShadow,
@@ -183,7 +199,9 @@ class SigilSceneBuilder {
         enablePan: Boolean = true,
         enableKeys: Boolean = true,
         autoRotate: Boolean = false,
-        autoRotateSpeed: Float = 2f
+        autoRotateSpeed: Float = 2f,
+        interaction: InteractionMetadata? = null,
+        animations: List<SceneAnimationData> = emptyList()
     ): ControlsData {
         val controls = ControlsData(
             id = id,
@@ -192,6 +210,8 @@ class SigilSceneBuilder {
             scale = scale,
             visible = visible,
             name = name,
+            interaction = interaction,
+            animations = animations,
             controlsType = controlsType,
             target = target,
             enableDamping = enableDamping,
@@ -227,6 +247,8 @@ class SigilSceneBuilder {
         scale: List<Float> = listOf(1f, 1f, 1f),
         visible: Boolean = true,
         name: String? = null,
+        interaction: InteractionMetadata? = null,
+        animations: List<SceneAnimationData> = emptyList(),
         content: SigilGroupBuilder.() -> Unit
     ): GroupData {
         val builder = SigilGroupBuilder()
@@ -238,6 +260,8 @@ class SigilSceneBuilder {
             scale = scale,
             visible = visible,
             name = name,
+            interaction = interaction,
+            animations = animations,
             children = builder.build()
         )
         nodes.add(group)
@@ -296,6 +320,8 @@ class SigilGroupBuilder {
         geometryParams: GeometryParams = GeometryParams(),
         visible: Boolean = true,
         name: String? = null,
+        interaction: InteractionMetadata? = null,
+        animations: List<SceneAnimationData> = emptyList(),
         castShadow: Boolean = true,
         receiveShadow: Boolean = true
     ): MeshData {
@@ -306,6 +332,8 @@ class SigilGroupBuilder {
             scale = scale,
             visible = visible,
             name = name,
+            interaction = interaction,
+            animations = animations,
             geometryType = geometryType,
             geometryParams = geometryParams,
             materialColor = color,
@@ -327,7 +355,9 @@ class SigilGroupBuilder {
         distance: Float = 0f,
         decay: Float = 2f,
         visible: Boolean = true,
-        name: String? = null
+        name: String? = null,
+        interaction: InteractionMetadata? = null,
+        animations: List<SceneAnimationData> = emptyList()
     ): LightData {
         val light = LightData(
             id = id,
@@ -336,6 +366,8 @@ class SigilGroupBuilder {
             scale = listOf(1f, 1f, 1f),
             visible = visible,
             name = name,
+            interaction = interaction,
+            animations = animations,
             lightType = lightType,
             color = color,
             intensity = intensity,
@@ -354,6 +386,8 @@ class SigilGroupBuilder {
         scale: List<Float> = listOf(1f, 1f, 1f),
         visible: Boolean = true,
         name: String? = null,
+        interaction: InteractionMetadata? = null,
+        animations: List<SceneAnimationData> = emptyList(),
         castShadow: Boolean = true,
         receiveShadow: Boolean = true,
         materialOverrides: List<ModelMaterialOverride> = emptyList()
@@ -365,6 +399,8 @@ class SigilGroupBuilder {
             scale = scale,
             visible = visible,
             name = name,
+            interaction = interaction,
+            animations = animations,
             url = url,
             castShadow = castShadow,
             receiveShadow = receiveShadow,
@@ -400,7 +436,9 @@ class SigilGroupBuilder {
         enablePan: Boolean = true,
         enableKeys: Boolean = true,
         autoRotate: Boolean = false,
-        autoRotateSpeed: Float = 2f
+        autoRotateSpeed: Float = 2f,
+        interaction: InteractionMetadata? = null,
+        animations: List<SceneAnimationData> = emptyList()
     ): ControlsData {
         val controls = ControlsData(
             id = id,
@@ -409,6 +447,8 @@ class SigilGroupBuilder {
             scale = scale,
             visible = visible,
             name = name,
+            interaction = interaction,
+            animations = animations,
             controlsType = controlsType,
             target = target,
             enableDamping = enableDamping,
@@ -441,6 +481,8 @@ class SigilGroupBuilder {
         scale: List<Float> = listOf(1f, 1f, 1f),
         visible: Boolean = true,
         name: String? = null,
+        interaction: InteractionMetadata? = null,
+        animations: List<SceneAnimationData> = emptyList(),
         content: SigilGroupBuilder.() -> Unit
     ): GroupData {
         val builder = SigilGroupBuilder()
@@ -452,6 +494,8 @@ class SigilGroupBuilder {
             scale = scale,
             visible = visible,
             name = name,
+            interaction = interaction,
+            animations = animations,
             children = builder.build()
         )
         children.add(group)

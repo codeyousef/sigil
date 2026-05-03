@@ -3,6 +3,8 @@ package codes.yousef.sigil.summon.components
 import codes.yousef.summon.annotation.Composable
 import codes.yousef.sigil.schema.CameraData
 import codes.yousef.sigil.schema.CameraType
+import codes.yousef.sigil.schema.InteractionMetadata
+import codes.yousef.sigil.schema.SceneAnimationData
 import codes.yousef.sigil.schema.generateNodeId
 import codes.yousef.sigil.summon.context.SigilSummonContext
 
@@ -20,17 +22,22 @@ fun SigilCamera(
     far: Float = 1000f,
     lookAt: List<Float>? = null,
     visible: Boolean = true,
-    name: String? = null
+    name: String? = null,
+    interaction: InteractionMetadata? = null,
+    animations: List<SceneAnimationData> = emptyList(),
+    id: String = generateNodeId()
 ): String {
     val context = SigilSummonContext.current()
 
     val cameraData = CameraData(
-        id = generateNodeId(),
+        id = id,
         position = position,
         rotation = rotation,
         scale = listOf(1f, 1f, 1f),
         visible = visible,
         name = name,
+        interaction = interaction,
+        animations = animations,
         cameraType = cameraType,
         fov = fov,
         aspect = aspect,

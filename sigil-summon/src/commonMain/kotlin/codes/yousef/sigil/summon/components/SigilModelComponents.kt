@@ -3,8 +3,10 @@ package codes.yousef.sigil.summon.components
 import codes.yousef.summon.annotation.Composable
 import codes.yousef.sigil.schema.ControlsData
 import codes.yousef.sigil.schema.ControlsType
+import codes.yousef.sigil.schema.InteractionMetadata
 import codes.yousef.sigil.schema.ModelData
 import codes.yousef.sigil.schema.ModelMaterialOverride
+import codes.yousef.sigil.schema.SceneAnimationData
 import codes.yousef.sigil.schema.generateNodeId
 import codes.yousef.sigil.summon.context.SigilSummonContext
 
@@ -31,17 +33,22 @@ fun SigilModel(
     castShadow: Boolean = true,
     receiveShadow: Boolean = true,
     name: String? = null,
-    materialOverrides: List<ModelMaterialOverride> = emptyList()
+    materialOverrides: List<ModelMaterialOverride> = emptyList(),
+    interaction: InteractionMetadata? = null,
+    animations: List<SceneAnimationData> = emptyList(),
+    id: String = generateNodeId()
 ): String {
     val context = SigilSummonContext.current()
 
     val modelData = ModelData(
-        id = generateNodeId(),
+        id = id,
         position = position,
         rotation = rotation,
         scale = scale,
         visible = visible,
         name = name,
+        interaction = interaction,
+        animations = animations,
         url = url,
         castShadow = castShadow,
         receiveShadow = receiveShadow,
@@ -77,13 +84,18 @@ fun SigilOrbitControls(
     enableKeys: Boolean = true,
     autoRotate: Boolean = false,
     autoRotateSpeed: Float = 2f,
-    name: String? = null
+    name: String? = null,
+    interaction: InteractionMetadata? = null,
+    animations: List<SceneAnimationData> = emptyList(),
+    id: String = generateNodeId()
 ): String {
     val context = SigilSummonContext.current()
 
     val controlsData = ControlsData(
-        id = generateNodeId(),
+        id = id,
         name = name,
+        interaction = interaction,
+        animations = animations,
         controlsType = ControlsType.ORBIT,
         target = target,
         enableDamping = enableDamping,
@@ -136,14 +148,19 @@ fun SigilFirstPersonControls(
     groundHeight: Float = 0f,
     enableCollision: Boolean = false,
     collisionRadius: Float = 0.5f,
-    name: String? = null
+    name: String? = null,
+    interaction: InteractionMetadata? = null,
+    animations: List<SceneAnimationData> = emptyList(),
+    id: String = generateNodeId()
 ): String {
     val context = SigilSummonContext.current()
 
     val controlsData = ControlsData(
-        id = generateNodeId(),
+        id = id,
         position = position,
         name = name,
+        interaction = interaction,
+        animations = animations,
         controlsType = ControlsType.FIRST_PERSON,
         moveSpeed = moveSpeed,
         lookSpeed = lookSpeed,

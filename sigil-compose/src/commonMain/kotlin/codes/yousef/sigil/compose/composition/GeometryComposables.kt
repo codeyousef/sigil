@@ -9,6 +9,8 @@ import io.materia.material.MeshBasicMaterial
 import io.materia.material.MeshStandardMaterial
 import codes.yousef.sigil.schema.GeometryType
 import codes.yousef.sigil.schema.GeometryParams
+import codes.yousef.sigil.schema.InteractionMetadata
+import codes.yousef.sigil.schema.SceneAnimationData
 
 /**
  * Create a mesh with the specified geometry and material properties.
@@ -39,7 +41,9 @@ fun Mesh(
     visible: Boolean = true,
     castShadow: Boolean = true,
     receiveShadow: Boolean = true,
-    name: String = ""
+    name: String = "",
+    interaction: InteractionMetadata? = null,
+    animations: List<SceneAnimationData> = emptyList()
 ) {
     val geometry = remember(geometryType, geometryParams) {
         createGeometry(geometryType, geometryParams)
@@ -69,6 +73,7 @@ fun Mesh(
             mesh.castShadow = castShadow
             mesh.receiveShadow = receiveShadow
             mesh.name = name
+            mesh.applySigilMetadata(interaction, animations)
         }
     )
 }
@@ -90,7 +95,9 @@ fun Box(
     visible: Boolean = true,
     castShadow: Boolean = true,
     receiveShadow: Boolean = true,
-    name: String = ""
+    name: String = "",
+    interaction: InteractionMetadata? = null,
+    animations: List<SceneAnimationData> = emptyList()
 ) {
     Mesh(
         geometryType = GeometryType.BOX,
@@ -104,7 +111,9 @@ fun Box(
         visible = visible,
         castShadow = castShadow,
         receiveShadow = receiveShadow,
-        name = name
+        name = name,
+        interaction = interaction,
+        animations = animations
     )
 }
 
@@ -125,7 +134,9 @@ fun Sphere(
     visible: Boolean = true,
     castShadow: Boolean = true,
     receiveShadow: Boolean = true,
-    name: String = ""
+    name: String = "",
+    interaction: InteractionMetadata? = null,
+    animations: List<SceneAnimationData> = emptyList()
 ) {
     Mesh(
         geometryType = GeometryType.SPHERE,
@@ -143,7 +154,9 @@ fun Sphere(
         visible = visible,
         castShadow = castShadow,
         receiveShadow = receiveShadow,
-        name = name
+        name = name,
+        interaction = interaction,
+        animations = animations
     )
 }
 
@@ -162,7 +175,9 @@ fun Plane(
     roughness: Float = 1f,
     visible: Boolean = true,
     receiveShadow: Boolean = true,
-    name: String = ""
+    name: String = "",
+    interaction: InteractionMetadata? = null,
+    animations: List<SceneAnimationData> = emptyList()
 ) {
     Mesh(
         geometryType = GeometryType.PLANE,
@@ -176,7 +191,9 @@ fun Plane(
         visible = visible,
         castShadow = false, // Planes typically don't cast shadows
         receiveShadow = receiveShadow,
-        name = name
+        name = name,
+        interaction = interaction,
+        animations = animations
     )
 }
 
@@ -191,6 +208,8 @@ fun Group(
     scale: Vector3 = Vector3.ONE,
     visible: Boolean = true,
     name: String = "",
+    interaction: InteractionMetadata? = null,
+    animations: List<SceneAnimationData> = emptyList(),
     content: @Composable () -> Unit
 ) {
     MateriaNodeWithContent(
@@ -201,6 +220,7 @@ fun Group(
             group.scale.copy(scale)
             group.visible = visible
             group.name = name
+            group.applySigilMetadata(interaction, animations)
         },
         content = content
     )

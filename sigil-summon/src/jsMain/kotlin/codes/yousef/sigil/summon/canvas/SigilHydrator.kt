@@ -10,17 +10,33 @@ import codes.yousef.sigil.schema.LightData
 import codes.yousef.sigil.schema.CameraData
 import codes.yousef.sigil.schema.ControlsData
 import codes.yousef.sigil.schema.ControlsType
+import codes.yousef.sigil.schema.AnimationEasing
+import codes.yousef.sigil.schema.AnimationKind
+import codes.yousef.sigil.schema.AnimationTrigger
+import codes.yousef.sigil.schema.CursorHint
+import codes.yousef.sigil.schema.DragConstraintMode
 import codes.yousef.sigil.schema.GeometryType
 import codes.yousef.sigil.schema.GeometryParams
+import codes.yousef.sigil.schema.HighlightPatch
+import codes.yousef.sigil.schema.InteractionMetadata
 import codes.yousef.sigil.schema.LightType
+import codes.yousef.sigil.schema.SceneAnimationData
+import codes.yousef.sigil.schema.SceneNodePatch
+import codes.yousef.sigil.schema.ScenePatch
 import codes.yousef.sigil.schema.SceneSettings
+import codes.yousef.sigil.schema.SigilJson
+import io.materia.core.scene.Intersection
+import io.materia.core.scene.Material
+import io.materia.core.scene.Raycaster
 import io.materia.core.scene.Scene
 import io.materia.core.scene.Object3D
 import io.materia.core.scene.Mesh
 import io.materia.core.scene.Group
 import io.materia.core.scene.Background
 import io.materia.core.math.Color
+import io.materia.core.math.Vector2
 import io.materia.core.math.Vector3
+import io.materia.material.Material as BaseMaterial
 import io.materia.material.MeshBasicMaterial
 import io.materia.material.MeshStandardMaterial
 import io.materia.camera.PerspectiveCamera
@@ -42,7 +58,9 @@ import io.materia.geometry.OctahedronGeometry
 import io.materia.geometry.TetrahedronGeometry
 import io.materia.geometry.DodecahedronGeometry
 import io.materia.geometry.BufferGeometry
+import io.materia.loader.AssetResolver
 import io.materia.loader.GLTFLoader
+import io.materia.loader.TextureLoader
 import io.materia.lighting.AmbientLightImpl
 import io.materia.lighting.DirectionalLightImpl
 import io.materia.lighting.PointLightImpl
@@ -51,9 +69,12 @@ import io.materia.lighting.HemisphereLightImpl
 import io.materia.lighting.Light
 import io.materia.lighting.DefaultLightingSystem
 import io.materia.renderer.Renderer
+import io.materia.renderer.TextureFilter
 import io.materia.renderer.webgpu.WebGPURenderer
 import io.materia.renderer.webgl.WebGLRenderer
 import io.materia.renderer.RendererConfig
+import io.materia.texture.Texture
+import io.materia.texture.Texture2D
 import kotlinx.browser.document
 import kotlinx.browser.window
 import kotlinx.coroutines.MainScope
@@ -64,8 +85,40 @@ import org.w3c.dom.events.Event
 import org.w3c.dom.events.KeyboardEvent
 import org.w3c.dom.events.MouseEvent
 import org.w3c.dom.events.WheelEvent
+import kotlin.js.ExperimentalJsExport
+import kotlin.math.PI
+import kotlin.math.pow
+import kotlin.math.sin
 
 private val scope = MainScope()
+
+private data class ActiveSceneAnimation(
+    val node: Object3D,
+    val data: SceneAnimationData,
+    val startedAtMs: Double,
+    val basePosition: List<Float>,
+    val baseScale: List<Float>,
+    val baseVisible: Boolean
+)
+
+private data class ActiveDrag(
+    val source: Object3D,
+    val sourceInteraction: InteractionMetadata,
+    var target: Object3D? = null,
+    var lastX: Float = 0f,
+    var lastY: Float = 0f
+)
+
+private class SigilRelativeAssetResolver(
+    private val modelUrl: String,
+    private val delegate: AssetResolver = AssetResolver.default()
+) : AssetResolver {
+    override suspend fun load(uri: String, basePath: String?): ByteArray {
+        if (uri == modelUrl) return delegate.load(uri, basePath)
+        val resolved = SigilGltfMetadata.resolveAssetPath(uri, basePath, modelUrl)
+        return delegate.load(resolved, null)
+    }
+}
 
 /**
  * Hydrator class that creates Materia objects from schema data.
@@ -81,11 +134,16 @@ class SigilHydrator(
     private var running = false
     private var camera: PerspectiveCamera? = null
     private val nodeMap = mutableMapOf<String, Object3D>()
+    private val interactionNodeMap = mutableMapOf<String, Object3D>()
+    private val nodeDataMap = mutableMapOf<String, SigilNodeData>()
     private val lights = mutableListOf<Light>()
-    private val gltfLoader = GLTFLoader()
     private var orbitControls: OrbitControls? = null
     private var firstPersonControls: FirstPersonControls? = null
     private var controlsCleanup: (() -> Unit)? = null
+    private var interactionCleanup: (() -> Unit)? = null
+    private val raycaster = Raycaster()
+    private var activeDrag: ActiveDrag? = null
+    private val activeAnimations = mutableListOf<ActiveSceneAnimation>()
     private var lastFrameTimeMs: Double = 0.0
 
     suspend fun initialize() {
@@ -108,7 +166,7 @@ class SigilHydrator(
             val materiaNode = createMateriaNode(nodeData)
             if (materiaNode != null) {
                 materiaScene.add(materiaNode)
-                nodeMap[nodeData.id] = materiaNode
+                registerNode(nodeData, materiaNode)
             }
         }
 
@@ -168,6 +226,9 @@ class SigilHydrator(
             return
         }
 
+        interactionCleanup = attachInteractionHandlers()
+        triggerAnimations(AnimationTrigger.SCENE_LOAD)
+
         // Handle resize
         window.onresize = {
             val rect = canvas.parentElement?.getBoundingClientRect()
@@ -200,6 +261,7 @@ class SigilHydrator(
 
             orbitControls?.update(deltaSeconds)
             firstPersonControls?.update(deltaSeconds)
+            updateSceneAnimations(now)
             
             materiaScene.updateMatrixWorld(true)
             cam.updateMatrixWorld()
@@ -223,10 +285,16 @@ class SigilHydrator(
     fun dispose() {
         stop()
         controlsCleanup?.invoke()
+        interactionCleanup?.invoke()
         controlsCleanup = null
+        interactionCleanup = null
         orbitControls = null
         firstPersonControls = null
         nodeMap.clear()
+        interactionNodeMap.clear()
+        nodeDataMap.clear()
+        activeAnimations.clear()
+        activeDrag = null
         renderer?.dispose()
         renderer = null
     }
@@ -302,8 +370,10 @@ class SigilHydrator(
 
         scope.launch {
             try {
-                val asset = gltfLoader.load(data.url)
+                val assetResolver = SigilRelativeAssetResolver(data.url)
+                val asset = GLTFLoader(assetResolver).load(data.url)
                 val root = asset.scene
+                hydrateGltfBaseColorTextures(asset.materials, data.url, assetResolver)
                 applyModelSettings(root, data)
                 group.clear()
                 group.add(root)
@@ -393,7 +463,7 @@ class SigilHydrator(
             val childNode = createMateriaNode(childData)
             if (childNode != null) {
                 group.add(childNode)
-                nodeMap[childData.id] = childNode
+                registerNode(childData, childNode)
             }
         }
 
@@ -405,6 +475,8 @@ class SigilHydrator(
             val mesh = node as? Mesh ?: return@traverse
             mesh.castShadow = data.castShadow
             mesh.receiveShadow = data.receiveShadow
+            preserveGltfGeometryAttributes(mesh)
+            configureMaterialTextureFidelity(mesh.material)
             applyMaterialOverrides(mesh, data.materialOverrides)
         }
     }
@@ -454,6 +526,701 @@ class SigilHydrator(
             material.needsUpdate = true
         }
 
+    }
+
+    private fun registerNode(data: SigilNodeData, node: Object3D) {
+        nodeMap[data.id] = node
+        nodeDataMap[data.id] = data
+        applyNodeMetadata(node, data)
+    }
+
+    private fun applyNodeMetadata(node: Object3D, data: SigilNodeData) {
+        node.userData["sigilNodeId"] = data.id
+        data.interaction?.let { interaction ->
+            node.userData["sigilInteraction"] = interaction
+            interaction.interactionId?.let { interactionId ->
+                node.userData["sigilInteractionId"] = interactionId
+                interactionNodeMap[interactionId] = node
+            }
+        } ?: run {
+            node.userData.remove("sigilInteraction")
+            node.userData.remove("sigilInteractionId")
+        }
+
+        val animations = data.animations
+        if (animations.isNotEmpty()) {
+            node.userData["sigilAnimations"] = animations
+        } else {
+            node.userData.remove("sigilAnimations")
+        }
+    }
+
+    fun applyPatch(patch: ScenePatch) {
+        for (nodePatch in patch.nodes) {
+            val node = findPatchTarget(nodePatch) ?: continue
+            applyNodePatch(node, nodePatch)
+            val nodeId = node.userData["sigilNodeId"] as? String
+            val nodeData = nodeId?.let { nodeDataMap[it] }
+            if (nodePatch.animations.isNotEmpty()) {
+                scheduleAnimations(node, nodePatch.animations, AnimationTrigger.PATCH)
+            } else if (nodeData != null) {
+                scheduleAnimations(node, nodeData.animations, AnimationTrigger.PATCH)
+            }
+        }
+        materiaScene.updateMatrixWorld(true)
+    }
+
+    private fun findPatchTarget(patch: SceneNodePatch): Object3D? {
+        patch.interactionId?.let { interactionId ->
+            interactionNodeMap[interactionId]?.let { return it }
+        }
+        patch.id?.let { id ->
+            nodeMap[id]?.let { return it }
+        }
+        return null
+    }
+
+    private fun applyNodePatch(node: Object3D, patch: SceneNodePatch) {
+        patch.position?.takeIf { it.size >= 3 }?.let { node.position.set(it[0], it[1], it[2]) }
+        patch.rotation?.takeIf { it.size >= 3 }?.let { node.rotation.set(it[0], it[1], it[2]) }
+        patch.scale?.takeIf { it.size >= 3 }?.let { node.scale.set(it[0], it[1], it[2]) }
+        patch.visible?.let { node.visible = it }
+        patch.name?.let { node.name = it }
+        patch.label?.let { node.userData["sigilLabel"] = it }
+        patch.highlight?.let { applyHighlightPatch(node, it) }
+    }
+
+    private fun applyHighlightPatch(node: Object3D, patch: HighlightPatch) {
+        if (patch.active) {
+            setNodeMaterialColor(node, intToColor(patch.color), storeOriginal = true)
+            node.userData["sigilHighlightActive"] = true
+        } else {
+            restoreNodeMaterialColor(node)
+            node.userData.remove("sigilHighlightActive")
+        }
+    }
+
+    private suspend fun hydrateGltfBaseColorTextures(
+        materials: List<Material>,
+        modelUrl: String,
+        assetResolver: AssetResolver
+    ) {
+        if (!modelUrl.substringBefore("?", modelUrl).substringBefore("#", modelUrl).endsWith(".gltf", ignoreCase = true)) {
+            return
+        }
+
+        val gltfJson = try {
+            assetResolver.load(modelUrl, null).decodeToString()
+        } catch (t: Throwable) {
+            console.warn("Sigil: Could not read glTF JSON metadata for $modelUrl: ${t.message}")
+            return
+        }
+
+        val baseColorTextures = try {
+            SigilGltfMetadata.extractBaseColorTextures(gltfJson)
+        } catch (t: Throwable) {
+            console.warn("Sigil: Could not parse glTF material texture metadata for $modelUrl: ${t.message}")
+            return
+        }
+        if (baseColorTextures.isEmpty()) return
+
+        val textureLoader = TextureLoader(assetResolver)
+        val textureOptions = TextureLoader.TextureOptions(
+            generateMipmaps = true,
+            flipY = false,
+            anisotropy = 4f,
+            magFilter = TextureFilter.LINEAR,
+            minFilter = TextureFilter.LINEAR_MIPMAP_LINEAR
+        )
+
+        for (textureInfo in baseColorTextures) {
+            val material = materials.getOrNull(textureInfo.materialIndex) ?: continue
+            val texture = try {
+                textureLoader.load(textureInfo.uri, textureOptions)
+            } catch (t: Throwable) {
+                console.warn("Sigil: Could not load glTF baseColor texture ${textureInfo.uri}: ${t.message}")
+                continue
+            }
+
+            configureTextureFidelity(texture)
+            applyBaseColorTexture(material, texture, textureInfo.baseColorFactor)
+        }
+    }
+
+    private fun applyBaseColorTexture(
+        material: Material,
+        texture: Texture,
+        baseColorFactor: List<Float>
+    ) {
+        val color = colorFromBaseColorFactor(baseColorFactor)
+        val alpha = baseColorFactor.getOrNull(3) ?: 1f
+
+        when (material) {
+            is MeshStandardMaterial -> {
+                if (material.map == null) material.map = texture.unsafeCast<Texture2D>()
+                material.color = color
+                if (alpha < 1f) {
+                    material.transparent = true
+                    material.opacity = alpha
+                }
+                material.needsUpdate = true
+            }
+            is MeshBasicMaterial -> {
+                if (material.map == null) material.map = texture
+                material.color = color
+                material.transparent = alpha < 1f
+                material.opacity = alpha
+                material.needsUpdate = true
+            }
+            is BaseMaterial -> {
+                material.transparent = alpha < 1f
+                material.opacity = alpha
+                material.needsUpdate = true
+            }
+        }
+    }
+
+    private fun preserveGltfGeometryAttributes(mesh: Mesh) {
+        val geometry = mesh.geometry
+        if (geometry.hasAttribute("TEXCOORD_0") && !geometry.hasAttribute("uv")) {
+            geometry.getAttribute("TEXCOORD_0")?.let { geometry.setAttribute("uv", it) }
+        }
+        if (geometry.hasAttribute("COLOR_0") && !geometry.hasAttribute("color")) {
+            geometry.getAttribute("COLOR_0")?.let { geometry.setAttribute("color", it) }
+        }
+
+        val hasVertexColors = geometry.hasAttribute("color") || geometry.hasAttribute("COLOR_0")
+        if (hasVertexColors) {
+            when (val material = mesh.material) {
+                is MeshStandardMaterial -> {
+                    material.vertexColors = true
+                    material.needsUpdate = true
+                }
+                is BaseMaterial -> {
+                    material.vertexColors = true
+                    material.needsUpdate = true
+                }
+            }
+        }
+    }
+
+    private fun configureMaterialTextureFidelity(material: Material?) {
+        when (material) {
+            is MeshStandardMaterial -> {
+                configureTextureFidelity(material.map)
+                material.needsUpdate = true
+            }
+            is MeshBasicMaterial -> {
+                configureTextureFidelity(material.map)
+                material.needsUpdate = true
+            }
+        }
+    }
+
+    private fun configureTextureFidelity(texture: Texture?) {
+        texture ?: return
+        texture.generateMipmaps = true
+        texture.magFilter = TextureFilter.LINEAR
+        texture.minFilter = TextureFilter.LINEAR_MIPMAP_LINEAR
+        texture.anisotropy = 4f
+        texture.markTextureNeedsUpdate()
+    }
+
+    private fun colorFromBaseColorFactor(factor: List<Float>): Color {
+        return Color(
+            factor.getOrNull(0) ?: 1f,
+            factor.getOrNull(1) ?: 1f,
+            factor.getOrNull(2) ?: 1f,
+            factor.getOrNull(3) ?: 1f
+        )
+    }
+
+    private fun attachInteractionHandlers(): () -> Unit {
+        val hasInteractiveNodes = nodeDataMap.values.any { it.interaction?.enabled == true }
+        if (!hasInteractiveNodes) return {}
+
+        canvas.style.setProperty("touch-action", "none")
+
+        val mouseDown: (Event) -> Unit = mouseDown@{ event ->
+            val mouseEvent = event as? MouseEvent ?: return@mouseDown
+            val hit = pickInteractive(mouseEvent)
+            val node = hit.second ?: return@mouseDown
+            val interaction = interactionForNode(node) ?: return@mouseDown
+            dispatchSceneEvent("pointerdown", mouseEvent, node, hit.first)
+
+            val drag = interaction.drag
+            if (drag?.enabled == true) {
+                activeDrag = ActiveDrag(
+                    source = node,
+                    sourceInteraction = interaction,
+                    lastX = mouseEvent.clientX.toFloat(),
+                    lastY = mouseEvent.clientY.toFloat()
+                )
+                setCanvasCursor(CursorHint.GRABBING)
+                dispatchSceneEvent("dragstart", mouseEvent, node, hit.first)
+                mouseEvent.preventDefault()
+            }
+        }
+
+        val mouseMove: (Event) -> Unit = mouseMove@{ event ->
+            val mouseEvent = event as? MouseEvent ?: return@mouseMove
+            val drag = activeDrag
+            if (drag != null) {
+                updateDragPosition(drag, mouseEvent)
+                val target = pickDropTarget(mouseEvent, drag)
+                if (target != drag.target) {
+                    drag.target?.let { oldTarget ->
+                        oldTarget.userData.remove("sigilDropState")
+                        dispatchSceneEvent("dragleave", mouseEvent, oldTarget, null, drag)
+                    }
+                    target?.let { newTarget ->
+                        newTarget.userData["sigilDropState"] = "active"
+                        dispatchSceneEvent("dragenter", mouseEvent, newTarget, null, drag)
+                    }
+                    drag.target = target
+                }
+                dispatchSceneEvent("drag", mouseEvent, drag.source, null, drag)
+                mouseEvent.preventDefault()
+                return@mouseMove
+            }
+
+            val hit = pickInteractive(mouseEvent)
+            val node = hit.second
+            if (node != null) {
+                interactionForNode(node)?.let { setCanvasCursor(it.cursor) }
+                dispatchSceneEvent("pointermove", mouseEvent, node, hit.first)
+            } else {
+                setCanvasCursor(CursorHint.AUTO)
+            }
+        }
+
+        val mouseUp: (Event) -> Unit = mouseUp@{ event ->
+            val mouseEvent = event as? MouseEvent ?: return@mouseUp
+            val drag = activeDrag
+            if (drag != null) {
+                drag.target?.let { target ->
+                    target.userData["sigilDropState"] = "dropped"
+                    dispatchSceneEvent("drop", mouseEvent, target, null, drag)
+                }
+                dispatchSceneEvent("dragend", mouseEvent, drag.source, null, drag)
+                activeDrag = null
+                setCanvasCursor(CursorHint.AUTO)
+                mouseEvent.preventDefault()
+                return@mouseUp
+            }
+
+            val hit = pickInteractive(mouseEvent)
+            hit.second?.let { node ->
+                dispatchSceneEvent("pointerup", mouseEvent, node, hit.first)
+            }
+        }
+
+        val click: (Event) -> Unit = click@{ event ->
+            val mouseEvent = event as? MouseEvent ?: return@click
+            val hit = pickInteractive(mouseEvent)
+            hit.second?.let { node ->
+                dispatchSceneEvent("click", mouseEvent, node, hit.first)
+            }
+        }
+
+        canvas.addEventListener("mousedown", mouseDown)
+        canvas.addEventListener("mousemove", mouseMove)
+        canvas.addEventListener("mouseup", mouseUp)
+        canvas.addEventListener("click", click)
+
+        return {
+            canvas.removeEventListener("mousedown", mouseDown)
+            canvas.removeEventListener("mousemove", mouseMove)
+            canvas.removeEventListener("mouseup", mouseUp)
+            canvas.removeEventListener("click", click)
+            canvas.style.setProperty("cursor", "auto")
+        }
+    }
+
+    private fun pickInteractive(event: MouseEvent): Pair<Intersection?, Object3D?> {
+        val cam = camera ?: return Pair(null, null)
+        val pointer = normalizedPointer(event)
+        raycaster.setFromCamera(pointer, cam)
+        val intersections = raycaster.intersectObject(materiaScene, true)
+        for (intersection in intersections) {
+            val interactive = findInteractiveNode(intersection.`object`)
+            if (interactive != null) return Pair(intersection, interactive)
+        }
+        return Pair(null, null)
+    }
+
+    private fun pickDropTarget(event: MouseEvent, drag: ActiveDrag): Object3D? {
+        val cam = camera ?: return null
+        val pointer = normalizedPointer(event)
+        raycaster.setFromCamera(pointer, cam)
+        val intersections = raycaster.intersectObject(materiaScene, true)
+        for (intersection in intersections) {
+            val candidate = findInteractiveNode(intersection.`object`) ?: continue
+            if (candidate == drag.source) continue
+            if (acceptsDrop(drag, candidate)) return candidate
+        }
+        return null
+    }
+
+    private fun normalizedPointer(event: MouseEvent): Vector2 {
+        val rect = canvas.getBoundingClientRect()
+        val width = rect.width.takeIf { it > 0.0 } ?: canvas.width.toDouble()
+        val height = rect.height.takeIf { it > 0.0 } ?: canvas.height.toDouble()
+        val x = (((event.clientX - rect.left) / width) * 2.0 - 1.0).toFloat()
+        val y = (-(((event.clientY - rect.top) / height) * 2.0 - 1.0)).toFloat()
+        return Vector2(x, y)
+    }
+
+    private fun findInteractiveNode(start: Object3D?): Object3D? {
+        var current = start
+        while (current != null) {
+            val interaction = interactionForNode(current)
+            if (interaction?.enabled == true) return current
+            current = current.parent
+        }
+        return null
+    }
+
+    private fun interactionForNode(node: Object3D): InteractionMetadata? {
+        return node.userData["sigilInteraction"] as? InteractionMetadata
+    }
+
+    private fun acceptsDrop(drag: ActiveDrag, candidate: Object3D): Boolean {
+        val targetInteraction = interactionForNode(candidate) ?: return false
+        val dropTarget = targetInteraction.dropTarget ?: return false
+        if (!dropTarget.enabled) return false
+
+        val sourceNodeId = drag.source.userData["sigilNodeId"] as? String
+        val sourceInteractionId = drag.sourceInteraction.interactionId
+        val acceptedKeys = buildList {
+            sourceNodeId?.let { add(it) }
+            sourceInteractionId?.let { add(it) }
+            addAll(drag.sourceInteraction.actions)
+        }
+
+        if (dropTarget.accepts.isNotEmpty() && dropTarget.accepts.none { it in acceptedKeys }) {
+            candidate.userData["sigilDropState"] = "invalid"
+            return false
+        }
+
+        val sourceGroups = drag.sourceInteraction.drag?.dropGroups.orEmpty()
+        if (dropTarget.groups.isNotEmpty() && sourceGroups.none { it in dropTarget.groups }) {
+            candidate.userData["sigilDropState"] = "invalid"
+            return false
+        }
+
+        candidate.userData["sigilDropState"] = "valid"
+        return true
+    }
+
+    private fun updateDragPosition(drag: ActiveDrag, event: MouseEvent) {
+        val dx = (event.clientX.toFloat() - drag.lastX) / 80f
+        val dy = (event.clientY.toFloat() - drag.lastY) / 80f
+        val dragMetadata = drag.sourceInteraction.drag
+        when (dragMetadata?.mode ?: DragConstraintMode.CAMERA_PLANE) {
+            DragConstraintMode.HORIZONTAL,
+            DragConstraintMode.CAMERA_PLANE -> {
+                drag.source.position.x += dx
+                drag.source.position.z += dy
+            }
+            DragConstraintMode.VERTICAL -> {
+                drag.source.position.y -= dy
+            }
+            DragConstraintMode.LANE -> {
+                val laneMetadata = dragMetadata ?: return
+                val axis = laneMetadata.laneAxis?.takeIf { it.size >= 3 } ?: listOf(1f, 0f, 0f)
+                val movement = dx - dy
+                drag.source.position.x += axis[0] * movement
+                drag.source.position.y += axis[1] * movement
+                drag.source.position.z += axis[2] * movement
+                clampLanePosition(drag.source, axis, laneMetadata.min, laneMetadata.max)
+            }
+        }
+        drag.lastX = event.clientX.toFloat()
+        drag.lastY = event.clientY.toFloat()
+    }
+
+    private fun clampLanePosition(node: Object3D, axis: List<Float>, min: Float?, max: Float?) {
+        if (min == null && max == null) return
+        val value = node.position.x * axis[0] + node.position.y * axis[1] + node.position.z * axis[2]
+        val clamped = value.coerceIn(min ?: value, max ?: value)
+        val delta = clamped - value
+        node.position.x += axis[0] * delta
+        node.position.y += axis[1] * delta
+        node.position.z += axis[2] * delta
+    }
+
+    private fun dispatchSceneEvent(
+        type: String,
+        event: MouseEvent,
+        node: Object3D,
+        intersection: Intersection?,
+        drag: ActiveDrag? = null
+    ) {
+        val detail = sceneEventDetail(type, event, node, intersection, drag)
+        dispatchBrowserEvent("sigil:scene-event", detail)
+        dispatchBrowserEvent("sigil:$type", detail)
+
+        if (type != "pointermove" && type != "drag") {
+            (node.userData["sigilNodeId"] as? String)?.let { nodeId ->
+                nodeDataMap[nodeId]?.let { scheduleAnimations(node, it.animations, AnimationTrigger.INTERACTION) }
+            }
+        }
+    }
+
+    private fun sceneEventDetail(
+        type: String,
+        event: MouseEvent,
+        node: Object3D,
+        intersection: Intersection?,
+        drag: ActiveDrag?
+    ): dynamic {
+        val rect = canvas.getBoundingClientRect()
+        val detail = js("{}")
+        val interaction = interactionForNode(node)
+        detail.type = type
+        detail.nodeId = node.userData["sigilNodeId"] as? String
+        detail.interactionId = interaction?.interactionId ?: node.userData["sigilInteractionId"] as? String
+        detail.actions = interaction?.actions?.toTypedArray() ?: emptyArray<String>()
+        detail.events = interaction?.events?.toTypedArray() ?: emptyArray<String>()
+        detail.dropState = node.userData["sigilDropState"] as? String
+
+        val pointer = js("{}")
+        pointer.clientX = event.clientX
+        pointer.clientY = event.clientY
+        pointer.canvasX = event.clientX - rect.left
+        pointer.canvasY = event.clientY - rect.top
+        pointer.button = event.button.toInt()
+        detail.pointer = pointer
+
+        if (intersection != null) {
+            val hit = js("{}")
+            hit.distance = intersection.distance
+            hit.objectId = intersection.`object`.id
+            hit.objectName = intersection.`object`.name
+            val point = js("{}")
+            point.x = intersection.point.x
+            point.y = intersection.point.y
+            point.z = intersection.point.z
+            hit.point = point
+            detail.hit = hit
+        }
+
+        if (drag != null) {
+            val dragPayload = js("{}")
+            dragPayload.sourceNodeId = drag.source.userData["sigilNodeId"] as? String
+            dragPayload.sourceInteractionId = drag.sourceInteraction.interactionId
+            dragPayload.targetNodeId = drag.target?.userData?.get("sigilNodeId") as? String
+            dragPayload.targetInteractionId = drag.target?.userData?.get("sigilInteractionId") as? String
+            detail.drag = dragPayload
+        }
+
+        return detail
+    }
+
+    private fun dispatchBrowserEvent(eventName: String, detail: dynamic) {
+        val canvasEvent = js("new CustomEvent(eventName, { detail: detail, bubbles: true })")
+        canvas.dispatchEvent(canvasEvent.unsafeCast<Event>())
+        val windowEvent = js("new CustomEvent(eventName, { detail: detail })")
+        window.dispatchEvent(windowEvent.unsafeCast<Event>())
+    }
+
+    private fun setCanvasCursor(cursor: CursorHint) {
+        val cssCursor = when (cursor) {
+            CursorHint.AUTO -> "auto"
+            CursorHint.POINTER -> "pointer"
+            CursorHint.GRAB -> "grab"
+            CursorHint.GRABBING -> "grabbing"
+            CursorHint.CROSSHAIR -> "crosshair"
+            CursorHint.NONE -> "none"
+        }
+        canvas.style.setProperty("cursor", cssCursor)
+    }
+
+    private fun triggerAnimations(trigger: AnimationTrigger) {
+        nodeDataMap.forEach { (nodeId, nodeData) ->
+            val node = nodeMap[nodeId] ?: return@forEach
+            scheduleAnimations(node, nodeData.animations, trigger)
+        }
+    }
+
+    private fun scheduleAnimations(
+        node: Object3D,
+        animations: List<SceneAnimationData>,
+        trigger: AnimationTrigger
+    ) {
+        val now = window.performance.now()
+        animations
+            .filter { it.trigger == trigger }
+            .forEach { animation ->
+                activeAnimations.add(
+                    ActiveSceneAnimation(
+                        node = node,
+                        data = animation,
+                        startedAtMs = now,
+                        basePosition = listOf(node.position.x, node.position.y, node.position.z),
+                        baseScale = listOf(node.scale.x, node.scale.y, node.scale.z),
+                        baseVisible = node.visible
+                    )
+                )
+            }
+    }
+
+    private fun updateSceneAnimations(now: Double) {
+        if (activeAnimations.isEmpty()) return
+
+        val iterator = activeAnimations.iterator()
+        while (iterator.hasNext()) {
+            val active = iterator.next()
+            val duration = active.data.durationMs.coerceAtLeast(1).toDouble()
+            val delay = active.data.delayMs.coerceAtLeast(0).toDouble()
+            val repeatCount = active.data.repeat.coerceAtLeast(0) + 1
+            val elapsed = now - active.startedAtMs - delay
+            if (elapsed < 0.0) continue
+
+            val totalDuration = duration * repeatCount
+            val finished = elapsed >= totalDuration
+            val cycleElapsed = if (finished) duration else elapsed % duration
+            val progress = (cycleElapsed / duration).toFloat().coerceIn(0f, 1f)
+            val eased = easedProgress(progress, active.data.easing)
+
+            applySceneAnimationFrame(active, eased, progress)
+
+            if (finished) {
+                finishSceneAnimation(active)
+                iterator.remove()
+            }
+        }
+    }
+
+    private fun applySceneAnimationFrame(active: ActiveSceneAnimation, eased: Float, progress: Float) {
+        val node = active.node
+        val data = active.data
+        when (data.kind) {
+            AnimationKind.SLIDE -> {
+                val vector = data.vector ?: listOf(0f, 0.25f, 0f)
+                node.position.set(
+                    active.basePosition[0] + vector.getOrElse(0) { 0f } * eased * data.intensity,
+                    active.basePosition[1] + vector.getOrElse(1) { 0f } * eased * data.intensity,
+                    active.basePosition[2] + vector.getOrElse(2) { 0f } * eased * data.intensity
+                )
+            }
+            AnimationKind.BOB -> {
+                val height = (data.vector?.getOrNull(1) ?: 0.2f) * data.intensity
+                node.position.y = active.basePosition[1] + sin(progress * PI.toFloat() * 2f) * height
+            }
+            AnimationKind.THUNK,
+            AnimationKind.BOUNCE,
+            AnimationKind.PULSE -> {
+                val pulse = 1f + sin(progress * PI.toFloat()) * 0.12f * data.intensity
+                node.scale.set(
+                    active.baseScale[0] * pulse,
+                    active.baseScale[1] * pulse,
+                    active.baseScale[2] * pulse
+                )
+            }
+            AnimationKind.SHAKE,
+            AnimationKind.GLITCH -> {
+                val amount = 0.05f * data.intensity * (1f - progress)
+                node.position.x = active.basePosition[0] + sin(progress * PI.toFloat() * 18f) * amount
+                node.position.y = active.basePosition[1] + sin(progress * PI.toFloat() * 23f) * amount
+            }
+            AnimationKind.TINT,
+            AnimationKind.SUCCESS,
+            AnimationKind.FAILURE -> {
+                val color = data.color ?: when (data.kind) {
+                    AnimationKind.SUCCESS -> 0xFF22C55E.toInt()
+                    AnimationKind.FAILURE -> 0xFFEF4444.toInt()
+                    else -> 0xFFFFD166.toInt()
+                }
+                setNodeMaterialColor(node, intToColor(color), storeOriginal = true)
+            }
+            AnimationKind.VISIBILITY -> {
+                node.visible = eased >= 0.5f
+            }
+        }
+    }
+
+    private fun finishSceneAnimation(active: ActiveSceneAnimation) {
+        when (active.data.kind) {
+            AnimationKind.BOB,
+            AnimationKind.THUNK,
+            AnimationKind.BOUNCE,
+            AnimationKind.PULSE,
+            AnimationKind.SHAKE,
+            AnimationKind.GLITCH -> {
+                active.node.position.set(active.basePosition[0], active.basePosition[1], active.basePosition[2])
+                active.node.scale.set(active.baseScale[0], active.baseScale[1], active.baseScale[2])
+            }
+            AnimationKind.TINT,
+            AnimationKind.SUCCESS,
+            AnimationKind.FAILURE -> restoreNodeMaterialColor(active.node)
+            AnimationKind.VISIBILITY -> active.node.visible = active.baseVisible
+            else -> Unit
+        }
+    }
+
+    private fun easedProgress(progress: Float, easing: AnimationEasing): Float {
+        return when (easing) {
+            AnimationEasing.LINEAR -> progress
+            AnimationEasing.EASE_IN -> progress * progress
+            AnimationEasing.EASE_OUT -> 1f - (1f - progress).pow(2)
+            AnimationEasing.EASE_IN_OUT -> {
+                if (progress < 0.5f) {
+                    2f * progress * progress
+                } else {
+                    1f - (-2f * progress + 2f).pow(2) / 2f
+                }
+            }
+        }
+    }
+
+    private fun setNodeMaterialColor(node: Object3D, color: Color, storeOriginal: Boolean) {
+        node.traverse { traversed ->
+            val mesh = traversed as? Mesh ?: return@traverse
+            setMaterialColor(mesh.material, color, storeOriginal)
+        }
+    }
+
+    private fun setMaterialColor(material: Material?, color: Color, storeOriginal: Boolean) {
+        when (material) {
+            is MeshStandardMaterial -> {
+                if (storeOriginal && material.userData["sigilOriginalColor"] == null) {
+                    material.userData["sigilOriginalColor"] = material.color.clone()
+                }
+                material.color = color
+                material.needsUpdate = true
+            }
+            is MeshBasicMaterial -> {
+                if (storeOriginal && material.userData["sigilOriginalColor"] == null) {
+                    material.userData["sigilOriginalColor"] = material.color.clone()
+                }
+                material.color = color
+                material.needsUpdate = true
+            }
+        }
+    }
+
+    private fun restoreNodeMaterialColor(node: Object3D) {
+        node.traverse { traversed ->
+            val mesh = traversed as? Mesh ?: return@traverse
+            restoreMaterialColor(mesh.material)
+        }
+    }
+
+    private fun restoreMaterialColor(material: Material?) {
+        when (material) {
+            is MeshStandardMaterial -> {
+                val original = material.userData.remove("sigilOriginalColor") as? Color ?: return
+                material.color = original
+                material.needsUpdate = true
+            }
+            is MeshBasicMaterial -> {
+                val original = material.userData.remove("sigilOriginalColor") as? Color ?: return
+                material.color = original
+                material.needsUpdate = true
+            }
+        }
     }
 
     private fun createModelFallback(data: ModelData): Mesh {
@@ -828,8 +1595,11 @@ class SigilHydrator(
 /**
  * Register the global SigilHydrator for external access.
  */
+@OptIn(ExperimentalJsExport::class)
 @JsExport
 object SigilHydratorGlobal {
+    private val hydrators = mutableMapOf<String, SigilHydrator>()
+
     fun hydrate(canvasId: String, sceneData: dynamic) {
         val jsonString = JSON.stringify(sceneData)
         val scene = SigilScene.fromJson(jsonString)
@@ -858,8 +1628,25 @@ object SigilHydratorGlobal {
 
         scope.launch {
             val hydrator = SigilHydrator(canvas, scene)
+            hydrators[canvasId]?.dispose()
+            hydrators[canvasId] = hydrator
             hydrator.initialize()
             hydrator.startRenderLoop()
         }
+    }
+
+    fun patch(canvasId: String, patchData: dynamic) {
+        val hydrator = hydrators[canvasId] ?: return
+        val jsonString = if (js("typeof patchData === 'string'") as Boolean) {
+            patchData as String
+        } else {
+            JSON.stringify(patchData)
+        }
+        val patch = ScenePatch.fromJson(jsonString)
+        hydrator.applyPatch(patch)
+    }
+
+    fun dispose(canvasId: String) {
+        hydrators.remove(canvasId)?.dispose()
     }
 }
