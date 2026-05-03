@@ -1,5 +1,33 @@
 # Changelog
 
+## [0.4.0.0] - 2026-05-03
+
+### Added
+
+- Scene node interaction metadata for meshes, models, groups, lights, cameras, and controls, including stable `interactionId`, cursor hints, hit-volume metadata, action event names, drag metadata, and drop-target metadata
+- Declarative scene animation metadata with trigger, kind, duration, delay, easing, intensity, and repeat options
+- Runtime scene patch API with `ScenePatch`, `SceneNodePatch`, and `HighlightPatch` for incremental transform, visibility, highlight, and label updates by node ID or interaction ID
+- Scene lookup helper for resolving nested nodes by interaction ID
+- Summon and Compose component parameters that propagate interaction and animation metadata into scene nodes and Materia object `userData`
+- Browser scene event bridge for pointer down/up/move/click, drag start/move/end/drop, drop-target enter/leave, patch-applied, and animation-started events
+- Global JavaScript patch/dispose hooks on `window.SigilHydrator` for hydrated scenes
+- GLTF metadata helpers and tests for preserving relative, local, and remote baseColor texture paths
+- Focused schema, builder, scene lookup, and GLTF metadata tests
+
+### Changed
+
+- Hydrated GLTF models now preserve baseColor texture fidelity by resolving texture paths relative to the source model before loading
+- The hydration bundle was rebuilt with the new interactive runtime APIs
+- Kotlin was updated from 2.3.0 to 2.3.20 to avoid the Kotlin/JS serialization compiler failure encountered by the new schema DTOs
+- Documentation dependency snippets updated to version 0.4.0.0
+
+### Fixed
+
+- Fixed the Kotlin/JS internal compiler error from the Kotlin serialization plugin by moving to Kotlin 2.3.20
+- Fixed GLTF material texture assignment so loaded baseColor textures are applied to `MeshStandardMaterial`
+- Fixed GLTF geometry attribute preservation when optional attributes are absent
+- Fixed drag handling for lane-constrained drag metadata
+
 ## [0.3.3.3] - 2026-04-14
 
 ### Changed

@@ -58,6 +58,16 @@ sealed class SigilNodeData {
      * Optional name for debugging and scene traversal.
      */
     abstract val name: String?
+
+    /**
+     * Optional semantic metadata for scene interaction and event dispatch.
+     */
+    abstract val interaction: InteractionMetadata?
+
+    /**
+     * Optional declarative animations owned by the runtime render loop.
+     */
+    abstract val animations: List<SceneAnimationData>
 }
 
 /**
@@ -73,6 +83,8 @@ data class MeshData(
     override val scale: List<Float> = listOf(1f, 1f, 1f),
     override val visible: Boolean = true,
     override val name: String? = null,
+    override val interaction: InteractionMetadata? = null,
+    override val animations: List<SceneAnimationData> = emptyList(),
 
     /**
      * Type of geometry primitive.
@@ -137,6 +149,8 @@ data class ModelData(
     override val scale: List<Float> = listOf(1f, 1f, 1f),
     override val visible: Boolean = true,
     override val name: String? = null,
+    override val interaction: InteractionMetadata? = null,
+    override val animations: List<SceneAnimationData> = emptyList(),
 
     /**
      * URL or file path to a .gltf/.glb asset.
@@ -172,6 +186,8 @@ data class GroupData(
     override val scale: List<Float> = listOf(1f, 1f, 1f),
     override val visible: Boolean = true,
     override val name: String? = null,
+    override val interaction: InteractionMetadata? = null,
+    override val animations: List<SceneAnimationData> = emptyList(),
 
     /**
      * Child nodes within this group
@@ -191,6 +207,8 @@ data class LightData(
     override val scale: List<Float> = listOf(1f, 1f, 1f),
     override val visible: Boolean = true,
     override val name: String? = null,
+    override val interaction: InteractionMetadata? = null,
+    override val animations: List<SceneAnimationData> = emptyList(),
 
     /**
      * Type of light source
@@ -251,6 +269,8 @@ data class CameraData(
     override val scale: List<Float> = listOf(1f, 1f, 1f),
     override val visible: Boolean = true,
     override val name: String? = null,
+    override val interaction: InteractionMetadata? = null,
+    override val animations: List<SceneAnimationData> = emptyList(),
 
     /**
      * Type of camera projection
@@ -301,6 +321,8 @@ data class ControlsData(
     override val scale: List<Float> = listOf(1f, 1f, 1f),
     override val visible: Boolean = true,
     override val name: String? = null,
+    override val interaction: InteractionMetadata? = null,
+    override val animations: List<SceneAnimationData> = emptyList(),
 
     val controlsType: ControlsType = ControlsType.ORBIT,
     val target: List<Float> = listOf(0f, 0f, 0f),

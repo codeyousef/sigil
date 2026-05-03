@@ -1,5 +1,5 @@
 [versions]
-kotlin = "2.3.0"
+kotlin = "2.3.20"
 materia = "0.4.0.0"
 summon = "0.7.0.2"
 compose = "1.7.3"

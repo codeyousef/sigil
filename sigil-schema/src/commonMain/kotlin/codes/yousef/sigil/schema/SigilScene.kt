@@ -30,6 +30,12 @@ data class SigilScene(
     fun findNodeById(id: String): SigilNodeData? = findInNodes(rootNodes, id)
 
     /**
+     * Find a node by stable interaction ID through recursive traversal.
+     */
+    fun findNodeByInteractionId(interactionId: String): SigilNodeData? =
+        findInNodesByInteractionId(rootNodes, interactionId)
+
+    /**
      * Collect all nodes in the scene into a flat list.
      */
     fun flattenNodes(): List<SigilNodeData> = collectNodes(rootNodes)
@@ -39,6 +45,16 @@ data class SigilScene(
             if (node.id == id) return node
             if (node is GroupData) {
                 findInNodes(node.children, id)?.let { return it }
+            }
+        }
+        return null
+    }
+
+    private fun findInNodesByInteractionId(nodes: List<SigilNodeData>, interactionId: String): SigilNodeData? {
+        for (node in nodes) {
+            if (node.interaction?.interactionId == interactionId) return node
+            if (node is GroupData) {
+                findInNodesByInteractionId(node.children, interactionId)?.let { return it }
             }
         }
         return null

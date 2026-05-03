@@ -1,6 +1,9 @@
 package codes.yousef.sigil.compose.composition
 
+import codes.yousef.sigil.schema.InteractionMetadata
+import codes.yousef.sigil.schema.SceneAnimationData
 import io.materia.core.math.Color
+import io.materia.core.scene.Object3D
 import io.materia.geometry.primitives.BoxGeometry
 import io.materia.geometry.primitives.SphereGeometry
 import io.materia.geometry.primitives.PlaneGeometry
@@ -26,6 +29,25 @@ internal fun intToColor(argb: Int): Color {
     val g = ((argb shr 8) and 0xFF) / 255f
     val b = (argb and 0xFF) / 255f
     return Color(r, g, b)
+}
+
+internal fun Object3D.applySigilMetadata(
+    interaction: InteractionMetadata?,
+    animations: List<SceneAnimationData>
+) {
+    if (interaction != null) {
+        userData["sigilInteraction"] = interaction
+        interaction.interactionId?.let { userData["sigilInteractionId"] = it }
+    } else {
+        userData.remove("sigilInteraction")
+        userData.remove("sigilInteractionId")
+    }
+
+    if (animations.isNotEmpty()) {
+        userData["sigilAnimations"] = animations
+    } else {
+        userData.remove("sigilAnimations")
+    }
 }
 
 /**

@@ -62,6 +62,33 @@ class SigilSceneBuilderMeshTest {
     }
 
     @Test
+    fun mesh_interactionAndAnimations_preserved() {
+        val scene = sigilScene {
+            mesh(
+                id = "interactive-mesh",
+                interaction = InteractionMetadata(
+                    interactionId = "cta-block",
+                    cursor = CursorHint.POINTER,
+                    actions = listOf("activate")
+                ),
+                animations = listOf(
+                    SceneAnimationData(
+                        kind = AnimationKind.TINT,
+                        trigger = AnimationTrigger.INTERACTION,
+                        color = 0xFF22C55E.toInt()
+                    )
+                )
+            )
+        }
+
+        val mesh = scene.rootNodes.single() as MeshData
+        assertEquals("cta-block", mesh.interaction?.interactionId)
+        assertEquals(CursorHint.POINTER, mesh.interaction?.cursor)
+        assertEquals(listOf("activate"), mesh.interaction?.actions)
+        assertEquals(AnimationKind.TINT, mesh.animations.single().kind)
+    }
+
+    @Test
     fun mesh_returnsMeshData() {
         var capturedMesh: MeshData? = null
         

@@ -97,6 +97,33 @@ class SigilSceneTest {
         assertEquals(1, (restored.rootNodes[0] as GroupData).children.size)
     }
 
+    @Test
+    fun sigilScene_findNodeByInteractionId_searchesNestedGroups() {
+        val scene = SigilScene(
+            rootNodes = listOf(
+                GroupData(
+                    id = "root",
+                    children = listOf(
+                        MeshData(id = "plain-child"),
+                        GroupData(
+                            id = "nested",
+                            children = listOf(
+                                ModelData(
+                                    id = "model-child",
+                                    url = "models/object.gltf",
+                                    interaction = InteractionMetadata(interactionId = "object-hotspot")
+                                )
+                            )
+                        )
+                    )
+                )
+            )
+        )
+
+        assertEquals("model-child", scene.findNodeByInteractionId("object-hotspot")?.id)
+        assertEquals(null, scene.findNodeByInteractionId("missing-hotspot"))
+    }
+
     // ===== Complex Scene Tests =====
 
     @Test

@@ -40,6 +40,14 @@ fun main() {
         SigilHydratorGlobal.hydrate(canvasId, sceneData)
     }
 
+    sceneHydrator.patch = { canvasId: String, patchData: dynamic ->
+        SigilHydratorGlobal.patch(canvasId, patchData)
+    }
+
+    sceneHydrator.dispose = { canvasId: String ->
+        SigilHydratorGlobal.dispose(canvasId)
+    }
+
     // Also export under Sigil namespace for convenience
     js("window.Sigil = window.Sigil || {}")
     js("window.Sigil.EffectHydrator = window.SigilEffectHydrator")

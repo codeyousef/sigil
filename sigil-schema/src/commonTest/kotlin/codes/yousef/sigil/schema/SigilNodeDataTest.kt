@@ -2,6 +2,7 @@ package codes.yousef.sigil.schema
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 /**
@@ -35,6 +36,47 @@ class SigilNodeDataTest {
             val json = SigilJson.encodeToString(SigilNodeData.serializer(), node)
             assertTrue(json.contains("\"type\":\"$expectedType\""), "Expected type $expectedType in $json")
         }
+    }
+
+    @Test
+    fun polymorphicSerialization_interactionMetadataRoundTrips() {
+        val mesh = MeshData(
+            id = "interactive-mesh",
+            interaction = InteractionMetadata(
+                interactionId = "inventory-slot-1",
+                cursor = CursorHint.GRAB,
+                events = listOf("select", "drop"),
+                drag = DragMetadata(dropGroups = listOf("inventory")),
+                dropTarget = DropTargetMetadata(groups = listOf("inventory"))
+            ),
+            animations = listOf(
+                SceneAnimationData(
+                    kind = AnimationKind.PULSE,
+                    trigger = AnimationTrigger.INTERACTION,
+                    durationMs = 120
+                )
+            )
+        )
+
+        val json = SigilJson.encodeToString(SigilNodeData.serializer(), mesh)
+        val restored = SigilJson.decodeFromString(SigilNodeData.serializer(), json) as MeshData
+
+        assertEquals("inventory-slot-1", restored.interaction?.interactionId)
+        assertEquals(CursorHint.GRAB, restored.interaction?.cursor)
+        assertEquals(listOf("select", "drop"), restored.interaction?.events)
+        assertEquals(listOf("inventory"), restored.interaction?.drag?.dropGroups)
+        assertEquals(AnimationKind.PULSE, restored.animations.single().kind)
+    }
+
+    @Test
+    fun polymorphicSerialization_legacyMeshDefaultsInteractionMetadata() {
+        val restored = SigilJson.decodeFromString(
+            SigilNodeData.serializer(),
+            """{"type":"mesh","id":"legacy-mesh"}"""
+        ) as MeshData
+
+        assertNull(restored.interaction)
+        assertTrue(restored.animations.isEmpty())
     }
 
     // ===== Unicode and Special Characters Tests =====

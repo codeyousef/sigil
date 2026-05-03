@@ -11,7 +11,9 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import codes.yousef.sigil.compose.canvas.MateriaCanvasState
 import codes.yousef.sigil.compose.context.LocalMateriaCanvasState
+import codes.yousef.sigil.schema.InteractionMetadata
 import codes.yousef.sigil.schema.ModelMaterialOverride
+import codes.yousef.sigil.schema.SceneAnimationData
 import io.materia.controls.ControlsConfig
 import io.materia.controls.OrbitControls
 import io.materia.core.math.Color
@@ -38,7 +40,9 @@ fun Model(
     castShadow: Boolean = true,
     receiveShadow: Boolean = true,
     name: String = "",
-    materialOverrides: List<ModelMaterialOverride> = emptyList()
+    materialOverrides: List<ModelMaterialOverride> = emptyList(),
+    interaction: InteractionMetadata? = null,
+    animations: List<SceneAnimationData> = emptyList()
 ) {
     val group = remember { Group() }
     val loader = remember { GLTFLoader() }
@@ -81,6 +85,7 @@ fun Model(
             modelGroup.scale.copy(scale)
             modelGroup.visible = visible
             modelGroup.name = name
+            modelGroup.applySigilMetadata(interaction, animations)
         }
     )
 }

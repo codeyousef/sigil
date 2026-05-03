@@ -5,6 +5,8 @@ import codes.yousef.sigil.schema.MeshData
 import codes.yousef.sigil.schema.GroupData
 import codes.yousef.sigil.schema.GeometryType
 import codes.yousef.sigil.schema.GeometryParams
+import codes.yousef.sigil.schema.InteractionMetadata
+import codes.yousef.sigil.schema.SceneAnimationData
 import codes.yousef.sigil.schema.generateNodeId
 import codes.yousef.sigil.summon.context.SigilSummonContext
 import codes.yousef.sigil.schema.SigilNodeData
@@ -41,17 +43,22 @@ fun SigilMesh(
     visible: Boolean = true,
     castShadow: Boolean = true,
     receiveShadow: Boolean = true,
-    name: String? = null
+    name: String? = null,
+    interaction: InteractionMetadata? = null,
+    animations: List<SceneAnimationData> = emptyList(),
+    id: String = generateNodeId()
 ): String {
     val context = SigilSummonContext.current()
 
     val meshData = MeshData(
-        id = generateNodeId(),
+        id = id,
         position = position,
         rotation = rotation,
         scale = scale,
         visible = visible,
         name = name,
+        interaction = interaction,
+        animations = animations,
         geometryType = geometryType,
         geometryParams = geometryParams,
         materialColor = color,
@@ -84,7 +91,10 @@ fun SigilBox(
     visible: Boolean = true,
     castShadow: Boolean = true,
     receiveShadow: Boolean = true,
-    name: String? = null
+    name: String? = null,
+    interaction: InteractionMetadata? = null,
+    animations: List<SceneAnimationData> = emptyList(),
+    id: String = generateNodeId()
 ): String = SigilMesh(
     geometryType = GeometryType.BOX,
     geometryParams = GeometryParams(width = width, height = height, depth = depth),
@@ -97,7 +107,10 @@ fun SigilBox(
     visible = visible,
     castShadow = castShadow,
     receiveShadow = receiveShadow,
-    name = name
+    name = name,
+    interaction = interaction,
+    animations = animations,
+    id = id
 )
 
 /**
@@ -117,7 +130,10 @@ fun SigilSphere(
     visible: Boolean = true,
     castShadow: Boolean = true,
     receiveShadow: Boolean = true,
-    name: String? = null
+    name: String? = null,
+    interaction: InteractionMetadata? = null,
+    animations: List<SceneAnimationData> = emptyList(),
+    id: String = generateNodeId()
 ): String = SigilMesh(
     geometryType = GeometryType.SPHERE,
     geometryParams = GeometryParams(
@@ -134,7 +150,10 @@ fun SigilSphere(
     visible = visible,
     castShadow = castShadow,
     receiveShadow = receiveShadow,
-    name = name
+    name = name,
+    interaction = interaction,
+    animations = animations,
+    id = id
 )
 
 /**
@@ -150,7 +169,10 @@ fun SigilPlane(
     color: Int = 0xFFFFFFFF.toInt(),
     visible: Boolean = true,
     receiveShadow: Boolean = true,
-    name: String? = null
+    name: String? = null,
+    interaction: InteractionMetadata? = null,
+    animations: List<SceneAnimationData> = emptyList(),
+    id: String = generateNodeId()
 ): String = SigilMesh(
     geometryType = GeometryType.PLANE,
     geometryParams = GeometryParams(width = width, height = height),
@@ -161,7 +183,10 @@ fun SigilPlane(
     visible = visible,
     castShadow = false,
     receiveShadow = receiveShadow,
-    name = name
+    name = name,
+    interaction = interaction,
+    animations = animations,
+    id = id
 )
 
 /**
@@ -174,6 +199,9 @@ fun SigilGroup(
     scale: List<Float> = listOf(1f, 1f, 1f),
     visible: Boolean = true,
     name: String? = null,
+    interaction: InteractionMetadata? = null,
+    animations: List<SceneAnimationData> = emptyList(),
+    id: String = generateNodeId(),
     content: @Composable () -> String
 ): String {
     val context = SigilSummonContext.current()
@@ -191,12 +219,14 @@ fun SigilGroup(
     context.exitGroup()
 
     val groupData = GroupData(
-        id = generateNodeId(),
+        id = id,
         position = position,
         rotation = rotation,
         scale = scale,
         visible = visible,
         name = name,
+        interaction = interaction,
+        animations = animations,
         children = children.toList()
     )
 
