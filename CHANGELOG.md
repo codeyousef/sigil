@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.4.0.1] - 2026-05-04
+
+### Changed
+
+- Documentation dependency snippets updated to version 0.4.0.1
+- The hydration bundle was rebuilt with the GLB and renderer fallback fixes
+
+### Fixed
+
+- `SigilModel` now loads binary `.glb` assets by converting GLB JSON/BIN chunks into loader-compatible glTF JSON instead of parsing binary GLB bytes as JSON
+- Embedded GLB bufferView images are exposed as `data:` image URIs so baseColor texture hydration can apply authored material textures
+- Renderer initialization now prefers WebGL in headless, webdriver, and SwiftShader-like validation environments unless explicitly overridden
+- WebGPU fallback now rebuilds the canvas before WebGL initialization when WebGPU may have claimed the surface
+- WebGPU render-time failures now attempt WebGL recovery instead of leaving the hydrated canvas blank
+
 ## [0.4.0.0] - 2026-05-03
 
 ### Added
