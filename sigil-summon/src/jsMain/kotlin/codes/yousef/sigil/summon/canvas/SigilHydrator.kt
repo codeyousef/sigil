@@ -113,10 +113,21 @@ private class SigilRelativeAssetResolver(
     private val modelUrl: String,
     private val delegate: AssetResolver = AssetResolver.default()
 ) : AssetResolver {
+    private var transformedGlbJson: String? = null
+
     override suspend fun load(uri: String, basePath: String?): ByteArray {
-        if (uri == modelUrl) return delegate.load(uri, basePath)
+        if (uri == modelUrl) return loadModelDocument(basePath)
         val resolved = SigilGltfMetadata.resolveAssetPath(uri, basePath, modelUrl)
         return delegate.load(resolved, null)
+    }
+
+    private suspend fun loadModelDocument(basePath: String?): ByteArray {
+        if (!SigilGltfMetadata.isGlbUrl(modelUrl)) return delegate.load(modelUrl, basePath)
+
+        val json = transformedGlbJson ?: SigilGltfMetadata
+            .glbToGltfJson(delegate.load(modelUrl, basePath))
+            .also { transformedGlbJson = it }
+        return json.encodeToByteArray()
     }
 }
 
@@ -124,9 +135,10 @@ private class SigilRelativeAssetResolver(
  * Hydrator class that creates Materia objects from schema data.
  */
 class SigilHydrator(
-    private val canvas: HTMLCanvasElement,
+    canvas: HTMLCanvasElement,
     private val sceneData: SigilScene
 ) {
+    private var canvas: HTMLCanvasElement = canvas
     private val materiaScene = Scene()
     private val lightingSystem = DefaultLightingSystem()
     private var renderer: Renderer? = null
@@ -145,6 +157,7 @@ class SigilHydrator(
     private var activeDrag: ActiveDrag? = null
     private val activeAnimations = mutableListOf<ActiveSceneAnimation>()
     private var lastFrameTimeMs: Double = 0.0
+    private var rendererCanvasMayNeedReplacement = false
 
     suspend fun initialize() {
         // Configure scene from settings
@@ -170,56 +183,7 @@ class SigilHydrator(
             }
         }
 
-        // Create renderer — try WebGPU first, fall back to WebGL
-        val config = RendererConfig()
-        var initialized = false
-
-        // Try WebGPU first
-        try {
-            val gpu = js("navigator.gpu")
-            if (gpu != null && gpu != undefined) {
-                val r = WebGPURenderer(canvas)
-                val result = r.initialize(config)
-                when (result) {
-                    is io.materia.core.Result.Success -> {
-                        renderer = r
-                        r.resize(canvas.width, canvas.height)
-                        r.clearColor = intToColor(sceneData.settings.backgroundColor)
-                        initialized = true
-                        console.log("Sigil: Initialized WebGPU renderer")
-                    }
-                    is io.materia.core.Result.Error -> {
-                        console.warn("Sigil: WebGPU initialization failed (${result.message}), trying WebGL fallback...")
-                        r.dispose()
-                    }
-                }
-            } else {
-                console.log("Sigil: WebGPU not available, trying WebGL fallback...")
-            }
-        } catch (e: Throwable) {
-            console.warn("Sigil: WebGPU error (${e.message}), trying WebGL fallback...")
-        }
-
-        // Fallback to WebGL
-        if (!initialized) {
-            try {
-                val r = WebGLRenderer(canvas)
-                val result = r.initialize(config)
-                when (result) {
-                    is io.materia.core.Result.Success -> {
-                        renderer = r
-                        r.resize(canvas.width, canvas.height)
-                        initialized = true
-                        console.log("Sigil: Initialized WebGL renderer (fallback)")
-                    }
-                    is io.materia.core.Result.Error -> {
-                        console.error("Sigil: WebGL initialization also failed: ${result.message}")
-                    }
-                }
-            } catch (e: Throwable) {
-                console.error("Sigil: WebGL fallback error: ${e.message}")
-            }
-        }
+        val initialized = initializeRenderer(RendererConfig())
 
         if (!initialized) {
             console.error("Sigil: No renderer could be initialized (tried WebGPU and WebGL)")
@@ -245,9 +209,135 @@ class SigilHydrator(
         }
     }
 
+    private suspend fun initializeRenderer(config: RendererConfig): Boolean {
+        val preferWebGl = SigilRendererPolicy.preferWebGlFirst(
+            userAgent = window.navigator.userAgent,
+            webdriver = (window.navigator.asDynamic().webdriver as? Boolean) == true,
+            rendererOverride = rendererOverride()
+        )
+
+        if (preferWebGl) {
+            console.log("Sigil: Preferring WebGL renderer for this browser environment")
+            if (initializeWebGlRenderer(config, fallback = false)) return true
+            return initializeWebGpuRenderer(config)
+        }
+
+        val webGpuInitialized = initializeWebGpuRenderer(config)
+        if (webGpuInitialized) return true
+
+        if (rendererCanvasMayNeedReplacement) {
+            replaceCanvasForRendererFallback()
+            reattachControlsFromSceneData()
+            rendererCanvasMayNeedReplacement = false
+        }
+        return initializeWebGlRenderer(config, fallback = true)
+    }
+
+    private suspend fun initializeWebGpuRenderer(config: RendererConfig): Boolean {
+        try {
+            val gpu = js("navigator.gpu")
+            if (gpu == null || gpu == undefined) {
+                console.log("Sigil: WebGPU not available, trying WebGL fallback...")
+                return false
+            }
+
+            rendererCanvasMayNeedReplacement = true
+            val r = WebGPURenderer(canvas)
+            val result = r.initialize(config)
+            return when (result) {
+                is io.materia.core.Result.Success -> {
+                    rendererCanvasMayNeedReplacement = false
+                    renderer = r
+                    configureInitializedRenderer(r)
+                    console.log("Sigil: Initialized WebGPU renderer")
+                    true
+                }
+                is io.materia.core.Result.Error -> {
+                    console.warn("Sigil: WebGPU initialization failed (${result.message}), trying WebGL fallback...")
+                    r.dispose()
+                    false
+                }
+            }
+        } catch (e: Throwable) {
+            console.warn("Sigil: WebGPU error (${e.message}), trying WebGL fallback...")
+            return false
+        }
+    }
+
+    private suspend fun initializeWebGlRenderer(config: RendererConfig, fallback: Boolean): Boolean {
+        try {
+            val r = WebGLRenderer(canvas)
+            val result = r.initialize(config)
+            return when (result) {
+                is io.materia.core.Result.Success -> {
+                    renderer = r
+                    configureInitializedRenderer(r)
+                    val suffix = if (fallback) " (fallback)" else ""
+                    console.log("Sigil: Initialized WebGL renderer$suffix")
+                    true
+                }
+                is io.materia.core.Result.Error -> {
+                    val prefix = if (fallback) "Sigil: WebGL initialization also failed" else "Sigil: WebGL initialization failed"
+                    console.error("$prefix: ${result.message}")
+                    r.dispose()
+                    false
+                }
+            }
+        } catch (e: Throwable) {
+            val prefix = if (fallback) "Sigil: WebGL fallback error" else "Sigil: WebGL error"
+            console.error("$prefix: ${e.message}")
+            return false
+        }
+    }
+
+    private fun configureInitializedRenderer(renderer: Renderer) {
+        renderer.resize(canvas.width, canvas.height)
+        (renderer as? WebGPURenderer)?.clearColor = intToColor(sceneData.settings.backgroundColor)
+    }
+
+    private fun rendererOverride(): String? {
+        val globalOverride = window.asDynamic().__SIGIL_RENDERER__ as? String
+        if (!globalOverride.isNullOrBlank()) return globalOverride
+
+        val legacyOverride = window.asDynamic().SIGIL_RENDERER as? String
+        if (!legacyOverride.isNullOrBlank()) return legacyOverride
+
+        val params = js("new URLSearchParams(window.location.search)").unsafeCast<dynamic>()
+        return (params.get("sigilRenderer") as? String)
+            ?: (params.get("renderer") as? String)
+    }
+
+    private fun replaceCanvasForRendererFallback() {
+        val parent = canvas.parentNode ?: return
+        val replacement = canvas.cloneNode(false).unsafeCast<HTMLCanvasElement>()
+        replacement.width = canvas.width
+        replacement.height = canvas.height
+        parent.replaceChild(replacement, canvas)
+        canvas = replacement
+    }
+
+    private fun reattachControlsFromSceneData() {
+        controlsCleanup?.invoke()
+        controlsCleanup = null
+        orbitControls = null
+        firstPersonControls = null
+        sceneData.rootNodes.forEachControls { controlsData ->
+            createControls(controlsData)
+        }
+    }
+
+    private fun List<SigilNodeData>.forEachControls(block: (ControlsData) -> Unit) {
+        for (node in this) {
+            when (node) {
+                is ControlsData -> block(node)
+                is GroupData -> node.children.forEachControls(block)
+                else -> Unit
+            }
+        }
+    }
+
     fun startRenderLoop() {
         val cam = camera ?: return
-        val r = renderer ?: return
         
         running = true
         lastFrameTimeMs = window.performance.now()
@@ -264,14 +354,50 @@ class SigilHydrator(
             updateSceneAnimations(now)
             
             materiaScene.updateMatrixWorld(true)
+            val r = renderer ?: return
             cam.updateMatrixWorld()
             cam.updateProjectionMatrix()
-            r.render(materiaScene, cam)
+            try {
+                r.render(materiaScene, cam)
+            } catch (t: Throwable) {
+                console.warn("Sigil: Render error (${t.message})")
+                if (r is WebGPURenderer) {
+                    scope.launch {
+                        switchToWebGlFallbackAfterRenderError(t)
+                    }
+                } else {
+                    stop()
+                }
+                return
+            }
 
             animationFrameId = window.requestAnimationFrame { renderFrame() }
         }
         
         renderFrame()
+    }
+
+    private suspend fun switchToWebGlFallbackAfterRenderError(error: Throwable) {
+        val oldRenderer = renderer
+        if (oldRenderer !is WebGPURenderer || !running) return
+
+        console.warn("Sigil: WebGPU render failed (${error.message}), rebuilding canvas for WebGL fallback...")
+        oldRenderer.dispose()
+        renderer = null
+        replaceCanvasForRendererFallback()
+        reattachControlsFromSceneData()
+
+        val initialized = initializeWebGlRenderer(RendererConfig(), fallback = true)
+        if (!initialized) {
+            console.error("Sigil: Could not recover WebGL renderer after WebGPU render failure")
+            stop()
+            return
+        }
+
+        interactionCleanup?.invoke()
+        interactionCleanup = attachInteractionHandlers()
+        lastFrameTimeMs = window.performance.now()
+        animationFrameId = window.requestAnimationFrame { startRenderLoop() }
     }
 
     fun stop() {
@@ -605,7 +731,7 @@ class SigilHydrator(
         modelUrl: String,
         assetResolver: AssetResolver
     ) {
-        if (!modelUrl.substringBefore("?", modelUrl).substringBefore("#", modelUrl).endsWith(".gltf", ignoreCase = true)) {
+        if (!SigilGltfMetadata.isGltfUrl(modelUrl) && !SigilGltfMetadata.isGlbUrl(modelUrl)) {
             return
         }
 

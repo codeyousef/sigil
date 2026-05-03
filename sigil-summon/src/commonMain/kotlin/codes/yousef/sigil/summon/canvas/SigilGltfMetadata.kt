@@ -4,12 +4,17 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonArray
+import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.floatOrNull
 import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import kotlin.io.encoding.Base64
+import kotlin.io.encoding.ExperimentalEncodingApi
 
 internal data class GltfBaseColorTexture(
     val materialIndex: Int,
@@ -20,6 +25,22 @@ internal data class GltfBaseColorTexture(
 )
 
 internal object SigilGltfMetadata {
+    private const val GLB_MAGIC = 0x46546C67
+    private const val GLB_VERSION_2 = 2
+    private const val GLB_CHUNK_JSON = 0x4E4F534A
+    private const val GLB_CHUNK_BIN = 0x004E4942
+
+    private data class ParsedGlb(
+        val json: String,
+        val binaryChunk: ByteArray?
+    )
+
+    fun isGltfUrl(url: String): Boolean =
+        cleanAssetUrl(url).endsWith(".gltf", ignoreCase = true)
+
+    fun isGlbUrl(url: String): Boolean =
+        cleanAssetUrl(url).endsWith(".glb", ignoreCase = true)
+
     fun resolveAssetPath(requested: String, basePath: String? = null, modelUrl: String? = null): String {
         if (requested.isBlank() || requested.isAbsoluteAssetPath()) return requested
 
@@ -34,6 +55,11 @@ internal object SigilGltfMetadata {
             return normalizeUrlPath(base, requested)
         }
         return normalizeRelativePath("$base/$requested")
+    }
+
+    fun glbToGltfJson(glbBytes: ByteArray): String {
+        val glb = parseGlb(glbBytes)
+        return embedGlbResources(glb.json, glb.binaryChunk)
     }
 
     fun extractBaseColorTextures(gltfJson: String): List<GltfBaseColorTexture> {
@@ -60,6 +86,125 @@ internal object SigilGltfMetadata {
                 baseColorFactor = pbr.floatArrayOrDefault("baseColorFactor", listOf(1f, 1f, 1f, 1f))
             )
         }
+    }
+
+    private fun cleanAssetUrl(url: String): String =
+        url.substringBefore("?").substringBefore("#")
+
+    private fun parseGlb(bytes: ByteArray): ParsedGlb {
+        require(bytes.size >= 20) { "GLB file is too small" }
+        require(bytes.readUInt32LE(0) == GLB_MAGIC) { "Invalid GLB magic" }
+        require(bytes.readUInt32LE(4) == GLB_VERSION_2) { "Unsupported GLB version" }
+
+        val declaredLength = bytes.readUInt32LE(8)
+        require(declaredLength <= bytes.size) { "GLB declared length exceeds available bytes" }
+
+        var offset = 12
+        var json: String? = null
+        var binaryChunk: ByteArray? = null
+
+        while (offset + 8 <= declaredLength) {
+            val chunkLength = bytes.readUInt32LE(offset)
+            val chunkType = bytes.readUInt32LE(offset + 4)
+            val chunkStart = offset + 8
+            val chunkEnd = chunkStart + chunkLength
+            require(chunkEnd <= declaredLength) { "GLB chunk exceeds declared length" }
+
+            when (chunkType) {
+                GLB_CHUNK_JSON -> {
+                    json = bytes.copyOfRange(chunkStart, chunkEnd)
+                        .decodeToString()
+                        .trimEnd('\u0000', ' ', '\n', '\r', '\t')
+                }
+                GLB_CHUNK_BIN -> {
+                    binaryChunk = bytes.copyOfRange(chunkStart, chunkEnd)
+                }
+            }
+
+            offset = chunkEnd
+        }
+
+        return ParsedGlb(
+            json = requireNotNull(json) { "GLB is missing a JSON chunk" },
+            binaryChunk = binaryChunk
+        )
+    }
+
+    private fun embedGlbResources(gltfJson: String, binaryChunk: ByteArray?): String {
+        if (binaryChunk == null) return gltfJson
+
+        val root = Json.parseToJsonElement(gltfJson).jsonObject
+        val bufferViews = root.arrayOrEmpty("bufferViews")
+
+        return buildJsonObject {
+            for ((key, value) in root) {
+                when (key) {
+                    "buffers" -> put(key, embedPrimaryGlbBuffer(root.arrayOrEmpty("buffers"), binaryChunk))
+                    "images" -> put(key, embedBufferViewImages(root.arrayOrEmpty("images"), bufferViews, binaryChunk))
+                    else -> put(key, value)
+                }
+            }
+        }.toString()
+    }
+
+    private fun embedPrimaryGlbBuffer(buffers: JsonArray, binaryChunk: ByteArray): JsonArray =
+        buildJsonArray {
+            buffers.forEachIndexed { index, buffer ->
+                val bufferObject = buffer as? JsonObject
+                if (index == 0 && bufferObject != null) {
+                    add(buildJsonObject {
+                        for ((key, value) in bufferObject) put(key, value)
+                        put("uri", JsonPrimitive(binaryChunk.toDataUri("application/octet-stream")))
+                    })
+                } else {
+                    add(buffer)
+                }
+            }
+        }
+
+    private fun embedBufferViewImages(
+        images: JsonArray,
+        bufferViews: JsonArray,
+        binaryChunk: ByteArray
+    ): JsonArray =
+        buildJsonArray {
+            images.forEach { image ->
+                val imageObject = image as? JsonObject
+                if (imageObject == null || imageObject["uri"] != null) {
+                    add(image)
+                    return@forEach
+                }
+
+                val bufferViewIndex = imageObject["bufferView"]?.jsonPrimitive?.intOrNull
+                val bufferView = bufferViewIndex?.let { bufferViews.getOrNull(it) as? JsonObject }
+                val imageBytes = bufferView?.sliceFromBinaryChunk(binaryChunk)
+                if (imageBytes == null) {
+                    add(image)
+                    return@forEach
+                }
+
+                val mimeType = imageObject["mimeType"]?.jsonPrimitive?.contentOrNull
+                    ?: "application/octet-stream"
+                add(buildJsonObject {
+                    for ((key, value) in imageObject) {
+                        if (key != "bufferView") put(key, value)
+                    }
+                    put("uri", JsonPrimitive(imageBytes.toDataUri(mimeType)))
+                })
+            }
+        }
+
+    private fun JsonObject.sliceFromBinaryChunk(binaryChunk: ByteArray): ByteArray? {
+        val bufferIndex = this["buffer"]?.jsonPrimitive?.intOrNull ?: 0
+        if (bufferIndex != 0) return null
+
+        val byteOffset = this["byteOffset"]?.jsonPrimitive?.intOrNull ?: 0
+        val byteLength = this["byteLength"]?.jsonPrimitive?.intOrNull ?: return null
+        if (byteOffset < 0 || byteLength < 0) return null
+
+        val end = byteOffset + byteLength
+        if (end > binaryChunk.size) return null
+        return binaryChunk.copyOfRange(byteOffset, end)
     }
 
     private fun String.isAbsoluteAssetPath(): Boolean {
@@ -107,4 +252,16 @@ internal object SigilGltfMetadata {
         val array = this[name]?.jsonArray ?: return default
         return array.mapNotNull { it.jsonPrimitive.floatOrNull }.takeIf { it.isNotEmpty() } ?: default
     }
+
+    private fun ByteArray.readUInt32LE(offset: Int): Int {
+        require(offset >= 0 && offset + 4 <= size) { "Offset is outside the byte array" }
+        return (this[offset].toInt() and 0xFF) or
+            ((this[offset + 1].toInt() and 0xFF) shl 8) or
+            ((this[offset + 2].toInt() and 0xFF) shl 16) or
+            ((this[offset + 3].toInt() and 0xFF) shl 24)
+    }
+
+    @OptIn(ExperimentalEncodingApi::class)
+    private fun ByteArray.toDataUri(mimeType: String): String =
+        "data:$mimeType;base64,${Base64.encode(this)}"
 }
