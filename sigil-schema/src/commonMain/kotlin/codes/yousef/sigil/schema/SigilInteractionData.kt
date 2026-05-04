@@ -83,7 +83,16 @@ data class DropTargetMetadata(
     val enabled: Boolean = true,
     val targetId: String? = null,
     val groups: List<String> = emptyList(),
-    val accepts: List<String> = emptyList()
+    val accepts: List<String> = emptyList(),
+    val states: DropTargetStateMetadata = DropTargetStateMetadata()
+)
+
+@Serializable
+data class DropTargetStateMetadata(
+    val hover: HighlightPatch? = null,
+    val active: HighlightPatch? = null,
+    val valid: HighlightPatch? = null,
+    val invalid: HighlightPatch? = null
 )
 
 @Serializable
@@ -311,14 +320,30 @@ private fun DropTargetMetadata.toJsonObject(): JsonObject = jsonObjectOf(
     "enabled" to JsonPrimitive(enabled),
     "targetId" to targetId?.let(::JsonPrimitive),
     "groups" to groups.toJsonArray(),
-    "accepts" to accepts.toJsonArray()
+    "accepts" to accepts.toJsonArray(),
+    "states" to states.toJsonObject()
 )
 
 private fun JsonObject.toDropTargetMetadata(): DropTargetMetadata = DropTargetMetadata(
     enabled = booleanOrNull("enabled") ?: true,
     targetId = stringOrNull("targetId"),
     groups = stringList("groups"),
-    accepts = stringList("accepts")
+    accepts = stringList("accepts"),
+    states = objOrNull("states")?.toDropTargetStateMetadata() ?: DropTargetStateMetadata()
+)
+
+private fun DropTargetStateMetadata.toJsonObject(): JsonObject = jsonObjectOf(
+    "hover" to hover?.toJsonObject(),
+    "active" to active?.toJsonObject(),
+    "valid" to valid?.toJsonObject(),
+    "invalid" to invalid?.toJsonObject()
+)
+
+private fun JsonObject.toDropTargetStateMetadata(): DropTargetStateMetadata = DropTargetStateMetadata(
+    hover = objOrNull("hover")?.toHighlightPatch(),
+    active = objOrNull("active")?.toHighlightPatch(),
+    valid = objOrNull("valid")?.toHighlightPatch(),
+    invalid = objOrNull("invalid")?.toHighlightPatch()
 )
 
 private fun jsonObjectOf(vararg pairs: Pair<String, JsonElement?>): JsonObject =

@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.4.0.6] - 2026-05-04
+
+### Added
+
+- World-space drag constraints for hydrated scene nodes, including camera-plane, horizontal, vertical, and lane-constrained movement with min/max clamping
+- Declarative drop target state metadata for hover, active, valid, and invalid visual feedback
+- Drag/drop scene event payload fields for source, target, target state, acceptance result, and group metadata
+
+### Changed
+
+- Hydrated drop target picking now reports invalid targets explicitly instead of filtering them out before event dispatch
+- The hydration bundle was rebuilt with the drag/drop runtime fixes
+
+### Tests
+
+- Added JS regression coverage for drag constraint projection, lane clamping, and parallel plane handling
+- Verified the existing scene event bridge, runtime patch API, and declarative animation helpers before closing their Linear issues
+
 ## [0.4.0.5] - 2026-05-04
 
 ### Changed
