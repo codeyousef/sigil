@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.4.0.7] - 2026-05-04
+
+### Added
+
+- Declarative `MateriaCanvas` scene-event handlers for binding Sigil pointer, click, drag, and drop events back to Summon/Kotlin callbacks without handwritten browser JavaScript
+- Serializable scene-event binding and match payloads for node IDs, interaction IDs, action tags, drop targets, accepted/rejected results, and generated interaction ID prefixes
+- Hydrated scene-event actions that can invoke Summon callback endpoints, local JS handlers, or URL templates after matching typed Sigil event payloads
+
+### Changed
+
+- JVM server rendering now registers scene-event callbacks through Summon's `CallbackRegistry` and embeds their bindings alongside Materia scene data
+- The hydration bundle was rebuilt with the scene-event action bridge
+
+### Tests
+
+- Added regression coverage for accepted drop matching, generated interaction prefix matching, node action matching, binding serialization, and JVM callback embedding
+- Verified the Summon scene-event bridge across JVM, JS node, browser, and packaged hydration bundle tasks
+
 ## [0.4.0.6] - 2026-05-04
 
 ### Added

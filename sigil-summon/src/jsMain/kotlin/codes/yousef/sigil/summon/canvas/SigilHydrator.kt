@@ -79,6 +79,7 @@ import kotlinx.browser.window
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.MainScope
 import kotlinx.coroutines.launch
+import kotlinx.serialization.builtins.ListSerializer
 import org.w3c.dom.HTMLCanvasElement
 import org.w3c.dom.HTMLDivElement
 import org.w3c.dom.events.Event
@@ -172,7 +173,9 @@ private class SigilRelativeAssetResolver(
  */
 class SigilHydrator(
     canvas: HTMLCanvasElement,
-    private val sceneData: SigilScene
+    private val sceneData: SigilScene,
+    private val sceneEventBindings: List<SigilSceneEventBinding> = emptyList(),
+    private val localSceneEventHandlers: Map<String, () -> Unit> = emptyMap()
 ) {
     private var canvas: HTMLCanvasElement = canvas
     private val materiaScene = Scene()
@@ -1258,6 +1261,7 @@ class SigilHydrator(
         val detail = sceneEventDetail(type, event, node, intersection, drag)
         dispatchBrowserEvent("sigil:scene-event", detail)
         dispatchBrowserEvent("sigil:$type", detail)
+        dispatchSceneEventBindings(sceneEventPayload(type, node, drag), event)
 
         if (type != "pointermove" && type != "drag") {
             (node.userData["sigilNodeId"] as? String)?.let { nodeId ->
@@ -1327,6 +1331,128 @@ class SigilHydrator(
         }
 
         return detail
+    }
+
+    private fun sceneEventPayload(
+        type: String,
+        node: Object3D,
+        drag: ActiveDrag?
+    ): SigilSceneEventPayload {
+        val interaction = interactionForNode(node)
+        return SigilSceneEventPayload(
+            type = type,
+            nodeId = node.userData["sigilNodeId"] as? String,
+            interactionId = interaction?.interactionId ?: node.userData["sigilInteractionId"] as? String,
+            actions = interaction?.actions.orEmpty(),
+            events = interaction?.events.orEmpty(),
+            dropState = node.userData["sigilDropState"] as? String,
+            drag = drag?.let(::dragPayload)
+        )
+    }
+
+    private fun dragPayload(drag: ActiveDrag): SigilSceneDragPayload =
+        SigilSceneDragPayload(
+            sourceNodeId = drag.source.userData["sigilNodeId"] as? String,
+            sourceInteractionId = drag.sourceInteraction.interactionId,
+            targetNodeId = drag.target?.userData?.get("sigilNodeId") as? String,
+            targetInteractionId = drag.target?.userData?.get("sigilInteractionId") as? String,
+            targetId = drag.target?.let { interactionForNode(it)?.dropTarget?.targetId },
+            targetState = drag.targetState,
+            accepted = drag.targetAccepted,
+            result = drag.dropResult ?: when (drag.targetAccepted) {
+                true -> "accepted"
+                false -> "rejected"
+                null -> "pending"
+            },
+            sourceDropGroups = drag.sourceInteraction.drag?.dropGroups.orEmpty(),
+            targetGroups = drag.target
+                ?.let { interactionForNode(it)?.dropTarget?.groups.orEmpty() }
+                ?: emptyList()
+        )
+
+    private fun dispatchSceneEventBindings(payload: SigilSceneEventPayload, event: MouseEvent) {
+        if (sceneEventBindings.isEmpty()) return
+
+        sceneEventBindings.forEach { binding ->
+            if (!binding.match.matches(payload)) return@forEach
+
+            if (binding.preventDefault) event.preventDefault()
+            if (binding.stopPropagation) event.stopPropagation()
+
+            invokeSceneEventBinding(binding, payload)
+        }
+    }
+
+    private fun invokeSceneEventBinding(binding: SigilSceneEventBinding, payload: SigilSceneEventPayload) {
+        binding.localHandlerId
+            ?.let(localSceneEventHandlers::get)
+            ?.let { handler ->
+                try {
+                    handler.invoke()
+                } catch (t: Throwable) {
+                    console.error("Sigil: Scene event handler failed: ${t.message}")
+                }
+            }
+
+        binding.callbackId?.let { callbackId ->
+            postSummonCallback(callbackId, binding.reloadOnSuccess)
+        }
+
+        binding.url?.let { url ->
+            window.location.href = expandSceneEventUrl(url, payload)
+        }
+    }
+
+    private fun postSummonCallback(callbackId: String, reloadOnSuccess: Boolean?) {
+        val options = js("{}")
+        options.method = "POST"
+        val headers = js("{}")
+        headers["X-Requested-With"] = "XMLHttpRequest"
+        options.headers = headers
+
+        val url = "/summon/callback/${encodeURIComponent(callbackId)}"
+        window.asDynamic().fetch(url, options)
+            .then({ response: dynamic ->
+                response.json()
+                    .then({ body: dynamic ->
+                        val responseWantsReload = (body.action as? String) == "reload"
+                        if (reloadOnSuccess == true || (reloadOnSuccess == null && responseWantsReload)) {
+                            window.location.reload()
+                        }
+                        null
+                    })
+                    .catch({ _: dynamic ->
+                        if (reloadOnSuccess == true) {
+                            window.location.reload()
+                        }
+                        null
+                    })
+            })
+            .catch({ error: dynamic ->
+                console.error("Sigil: Summon scene callback failed:", error)
+                null
+            })
+    }
+
+    private fun expandSceneEventUrl(template: String, payload: SigilSceneEventPayload): String {
+        val drag = payload.drag
+        val replacements = mapOf(
+            "type" to payload.type,
+            "nodeId" to payload.nodeId.orEmpty(),
+            "interactionId" to payload.interactionId.orEmpty(),
+            "dropState" to payload.dropState.orEmpty(),
+            "sourceNodeId" to drag?.sourceNodeId.orEmpty(),
+            "sourceInteractionId" to drag?.sourceInteractionId.orEmpty(),
+            "targetNodeId" to drag?.targetNodeId.orEmpty(),
+            "targetInteractionId" to drag?.targetInteractionId.orEmpty(),
+            "targetId" to drag?.targetId.orEmpty(),
+            "targetState" to drag?.targetState.orEmpty(),
+            "accepted" to (drag?.accepted?.toString() ?: ""),
+            "result" to drag?.result.orEmpty()
+        )
+        return replacements.entries.fold(template) { current, (key, value) ->
+            current.replace("\${$key}", encodeURIComponent(value))
+        }
     }
 
     private fun dispatchBrowserEvent(eventName: String, detail: dynamic) {
@@ -1903,6 +2029,10 @@ class SigilHydrator(
     }
 }
 
+@Suppress("UnsafeCastFromDynamic")
+private fun encodeURIComponent(value: String): String =
+    js("encodeURIComponent(value)") as String
+
 /**
  * Register the global SigilHydrator for external access.
  */
@@ -1911,9 +2041,10 @@ class SigilHydrator(
 object SigilHydratorGlobal {
     private val hydrators = mutableMapOf<String, SigilHydrator>()
 
-    fun hydrate(canvasId: String, sceneData: dynamic) {
+    fun hydrate(canvasId: String, sceneData: dynamic, sceneEventBindingsData: dynamic = null) {
         val jsonString = JSON.stringify(sceneData)
         val scene = SigilScene.fromJson(jsonString)
+        val sceneEventBindings = parseSceneEventBindings(sceneEventBindingsData)
         val element = document.getElementById(canvasId) ?: return
 
         val canvas: HTMLCanvasElement = when (element) {
@@ -1938,7 +2069,11 @@ object SigilHydratorGlobal {
         canvas.height = (rect.height as Number).toInt()
 
         scope.launch {
-            val hydrator = SigilHydrator(canvas, scene)
+            val hydrator = SigilHydrator(
+                canvas = canvas,
+                sceneData = scene,
+                sceneEventBindings = sceneEventBindings
+            )
             hydrators[canvasId]?.dispose()
             hydrators[canvasId] = hydrator
             hydrator.initialize()
@@ -1959,5 +2094,22 @@ object SigilHydratorGlobal {
 
     fun dispose(canvasId: String) {
         hydrators.remove(canvasId)?.dispose()
+    }
+
+    private fun parseSceneEventBindings(data: dynamic): List<SigilSceneEventBinding> {
+        if (js("data == null") as Boolean) return emptyList()
+
+        val jsonString = if (js("typeof data === 'string'") as Boolean) {
+            data as String
+        } else {
+            JSON.stringify(data)
+        }
+
+        return try {
+            SigilJson.decodeFromString(ListSerializer(SigilSceneEventBinding.serializer()), jsonString)
+        } catch (e: Exception) {
+            console.error("Sigil: Failed to parse scene event actions: ${e.message}")
+            emptyList()
+        }
     }
 }

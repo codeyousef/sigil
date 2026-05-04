@@ -2,10 +2,12 @@ package codes.yousef.sigil.summon.canvas
 
 import codes.yousef.summon.annotation.Composable
 import codes.yousef.summon.components.foundation.RawHtml
+import codes.yousef.summon.runtime.CallbackRegistry
 import codes.yousef.sigil.schema.SigilJson
 import codes.yousef.sigil.schema.SigilScene
 import codes.yousef.sigil.schema.SceneSettings
 import codes.yousef.sigil.summon.context.SigilSummonContext
+import kotlinx.serialization.builtins.ListSerializer
 
 /**
  * JVM (Server-side) implementation of MateriaCanvas for Summon SSR.
@@ -27,6 +29,43 @@ actual fun MateriaCanvas(
     width: String,
     height: String,
     backgroundColor: Int,
+    content: @Composable () -> String
+): String = renderMateriaCanvas(
+    id = id,
+    width = width,
+    height = height,
+    backgroundColor = backgroundColor,
+    sceneEventHandlers = emptyList(),
+    sceneEventBindings = emptyList(),
+    content = content
+)
+
+@Composable
+actual fun MateriaCanvas(
+    id: String,
+    width: String,
+    height: String,
+    backgroundColor: Int,
+    sceneEventHandlers: List<SigilSceneEventHandler>,
+    sceneEventBindings: List<SigilSceneEventBinding>,
+    content: @Composable () -> String
+): String = renderMateriaCanvas(
+    id = id,
+    width = width,
+    height = height,
+    backgroundColor = backgroundColor,
+    sceneEventHandlers = sceneEventHandlers,
+    sceneEventBindings = sceneEventBindings,
+    content = content
+)
+
+private fun renderMateriaCanvas(
+    id: String,
+    width: String,
+    height: String,
+    backgroundColor: Int,
+    sceneEventHandlers: List<SigilSceneEventHandler>,
+    sceneEventBindings: List<SigilSceneEventBinding>,
     content: @Composable () -> String
 ): String {
     // Create server-side context
@@ -50,6 +89,11 @@ actual fun MateriaCanvas(
 
     // Escape JSON for embedding in HTML script tag
     val escapedJson = escapeJsonForHtml(sceneJson)
+    val eventBindings = buildSceneEventBindings(sceneEventHandlers, sceneEventBindings)
+    val escapedEventBindingsJson = eventBindings
+        .takeIf { it.isNotEmpty() }
+        ?.let { SigilJson.encodeToString(ListSerializer(SigilSceneEventBinding.serializer()), it) }
+        ?.let(::escapeJsonForHtml)
 
     // Build the HTML output
     val html = buildString {
@@ -61,6 +105,11 @@ actual fun MateriaCanvas(
 
         // Embedded scene data for hydration
         append("""<script type="application/json" id="$id-data">$escapedJson</script>""")
+        if (escapedEventBindingsJson != null) {
+            append(
+                """<script type="application/json" id="$id-actions">$escapedEventBindingsJson</script>"""
+            )
+        }
 
         // Hydration loader script
         append(buildHydrationScript(id))
@@ -77,6 +126,16 @@ actual fun MateriaCanvas(
     }
 
     return html
+}
+
+private fun buildSceneEventBindings(
+    sceneEventHandlers: List<SigilSceneEventHandler>,
+    sceneEventBindings: List<SigilSceneEventBinding>
+): List<SigilSceneEventBinding> {
+    if (sceneEventHandlers.isEmpty()) return sceneEventBindings
+    return sceneEventBindings + sceneEventHandlers.map { handler ->
+        handler.toCallbackBinding(CallbackRegistry.registerCallback(handler.onEvent))
+    }
 }
 
 /**
@@ -184,7 +243,11 @@ private fun buildHydrationScript(canvasId: String): String {
                     const dataElement = document.getElementById('$canvasId-data');
                     if (dataElement) {
                         const sceneData = JSON.parse(dataElement.textContent);
-                        window.SigilHydrator.hydrate('$canvasId', sceneData);
+                        const actionsElement = document.getElementById('$canvasId-actions');
+                        const sceneActions = actionsElement
+                            ? JSON.parse(actionsElement.textContent || '[]')
+                            : [];
+                        window.SigilHydrator.hydrate('$canvasId', sceneData, sceneActions);
                     }
                 } catch (e) {
                     console.error('Sigil hydration failed:', e);

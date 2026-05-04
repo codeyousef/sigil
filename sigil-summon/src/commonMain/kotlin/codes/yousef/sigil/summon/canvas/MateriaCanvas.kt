@@ -27,6 +27,25 @@ expect fun MateriaCanvas(
 ): String
 
 /**
+ * Entry point for rendering a Materia 3D scene with declarative scene-event
+ * bindings back into Summon/Kotlin actions.
+ *
+ * Existing calls can keep using the simpler overload. Use this overload when a
+ * scene interaction, such as a click, drag enter, or accepted drop, should
+ * invoke a Kotlin callback without handwritten browser JavaScript.
+ */
+@Composable
+expect fun MateriaCanvas(
+    id: String = "sigil-materia-canvas",
+    width: String = "100%",
+    height: String = "100%",
+    backgroundColor: Int = 0xFF1A1A2E.toInt(),
+    sceneEventHandlers: List<SigilSceneEventHandler>,
+    sceneEventBindings: List<SigilSceneEventBinding> = emptyList(),
+    content: @Composable () -> String
+): String
+
+/**
  * Configure scene-level settings.
  */
 @Composable
