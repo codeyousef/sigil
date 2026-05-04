@@ -13,7 +13,8 @@ import kotlinx.serialization.Serializable
  */
 data class SigilSceneEventHandler(
     val match: SigilSceneEventMatch,
-    val onEvent: () -> Unit,
+    val onEvent: () -> Unit = {},
+    val onResponse: (() -> SigilSceneEventCallbackResponse?)? = null,
     val reloadOnSuccess: Boolean? = null,
     val preventDefault: Boolean = true,
     val stopPropagation: Boolean = false
@@ -23,6 +24,7 @@ data class SigilSceneEventHandler(
 data class SigilSceneEventBinding(
     val match: SigilSceneEventMatch = SigilSceneEventMatch(),
     val callbackId: String? = null,
+    val callbackUrl: String? = null,
     val localHandlerId: String? = null,
     val url: String? = null,
     val reloadOnSuccess: Boolean? = null,
@@ -174,10 +176,14 @@ private fun SigilSceneEventMatch.matchesDrag(drag: SigilSceneDragPayload?): Bool
         (accepted == null || accepted == drag.accepted)
 }
 
-internal fun SigilSceneEventHandler.toCallbackBinding(callbackId: String): SigilSceneEventBinding =
+internal fun SigilSceneEventHandler.toCallbackBinding(
+    callbackId: String,
+    callbackUrl: String? = null
+): SigilSceneEventBinding =
     SigilSceneEventBinding(
         match = match,
         callbackId = callbackId,
+        callbackUrl = callbackUrl,
         reloadOnSuccess = reloadOnSuccess,
         preventDefault = preventDefault,
         stopPropagation = stopPropagation

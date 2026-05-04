@@ -1,5 +1,24 @@
 # Changelog
 
+## [0.4.0.9] - 2026-05-04
+
+### Added
+
+- Patch-producing `MateriaCanvas` scene-event handlers can now return `SigilSceneEventCallbackResponse` through `onResponse`
+- JVM scene callbacks now have a Sigil-owned persistent callback registry for repeated no-reload interactions
+- Ktor integration now serves `POST /sigil/callback/{callbackId}` for scene and DOM patch responses
+
+### Changed
+
+- Scene-event bindings can carry an explicit `callbackUrl` so patch-capable handlers post to Sigil's callback endpoint while existing Summon callbacks keep their previous behavior
+- `sigilStaticAssets()` now installs the Sigil scene callback route alongside the hydration assets
+- The hydration bundle was rebuilt with explicit scene callback URL support
+
+### Tests
+
+- Added regression coverage for callback URL serialization and JVM patch response callbacks that bypass Summon's callback registry
+- Verified repeated no-reload scene callbacks continue returning scene and DOM patches across multiple invocations
+
 ## [0.4.0.8] - 2026-05-04
 
 ### Added

@@ -1402,7 +1402,7 @@ class SigilHydrator(
             }
 
         binding.callbackId?.let { callbackId ->
-            postSummonCallback(callbackId, binding.reloadOnSuccess)
+            postSummonCallback(callbackId, binding.callbackUrl, binding.reloadOnSuccess)
         }
 
         binding.url?.let { url ->
@@ -1410,14 +1410,14 @@ class SigilHydrator(
         }
     }
 
-    private fun postSummonCallback(callbackId: String, reloadOnSuccess: Boolean?) {
+    private fun postSummonCallback(callbackId: String, callbackUrl: String?, reloadOnSuccess: Boolean?) {
         val options = js("{}")
         options.method = "POST"
         val headers = js("{}")
         headers["X-Requested-With"] = "XMLHttpRequest"
         options.headers = headers
 
-        val url = "/summon/callback/${encodeURIComponent(callbackId)}"
+        val url = callbackUrl ?: "/summon/callback/${encodeURIComponent(callbackId)}"
         window.asDynamic().fetch(url, options)
             .then({ response: dynamic ->
                 response.text()

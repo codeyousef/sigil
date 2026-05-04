@@ -96,6 +96,7 @@ class SigilSceneEventBindingTest {
                     accepted = true
                 ),
                 callbackId = "callback-1",
+                callbackUrl = "/sigil/callback/callback-1",
                 reloadOnSuccess = true,
                 stopPropagation = true
             )
@@ -113,6 +114,7 @@ class SigilSceneEventBindingTest {
                 accepted = true
             ).copy(type = "dragenter")
         ))
+        assertTrue(restored.single().callbackUrl == "/sigil/callback/callback-1")
         assertTrue(restored.single().reloadOnSuccess == true)
         assertTrue(restored.single().stopPropagation)
     }

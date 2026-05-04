@@ -1,5 +1,8 @@
 package codes.yousef.sigil.summon.integration
 
+import codes.yousef.sigil.schema.SigilJson
+import codes.yousef.sigil.summon.canvas.SigilSceneCallbackRegistry
+import codes.yousef.sigil.summon.canvas.SigilSceneEventCallbackResponse
 import io.ktor.http.*
 import io.ktor.server.response.*
 import io.ktor.server.routing.*
@@ -33,6 +36,27 @@ object SigilKtorIntegration {
         }
         get("/sigil-hydration.js.map") {
             respondSigilAsset(SigilAssets.Assets.HYDRATION_JS_MAP)
+        }
+        sigilSceneCallbackHandler()
+    }
+
+    /**
+     * Handles Sigil scene callbacks that return no-reload scene or DOM patches.
+     */
+    fun Route.sigilSceneCallbackHandler() {
+        post("/sigil/callback/{callbackId}") {
+            val callbackId = call.parameters["callbackId"].orEmpty()
+            val result = SigilSceneCallbackRegistry.executeCallback(callbackId)
+            val body = SigilJson.encodeToString(
+                SigilSceneEventCallbackResponse.serializer(),
+                result.response
+            )
+
+            call.respondText(
+                body,
+                ContentType.Application.Json,
+                HttpStatusCode.fromValue(result.statusCode)
+            )
         }
     }
 
@@ -76,3 +100,8 @@ object SigilKtorIntegration {
  * ```
  */
 fun Route.sigilStaticAssets() = SigilKtorIntegration.run { sigilStaticAssets() }
+
+/**
+ * Extension function to add only the Sigil scene callback endpoint.
+ */
+fun Route.sigilSceneCallbackHandler() = SigilKtorIntegration.run { sigilSceneCallbackHandler() }
