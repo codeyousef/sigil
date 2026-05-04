@@ -16,7 +16,7 @@ When using Sigil with SSR frameworks like Summon:
 
 ```kotlin
 dependencies {
-    implementation("codes.yousef.sigil:sigil-summon:0.4.0.4")
+    implementation("codes.yousef.sigil:sigil-summon:<version>")
     
     // Plus your web framework of choice:
     // implementation("io.ktor:ktor-server-core:3.0.3")           // Ktor 3.x
@@ -24,6 +24,8 @@ dependencies {
     // implementation("io.quarkus:quarkus-resteasy-reactive:3.6.0") // Quarkus
 }
 ```
+
+Replace `<version>` with the latest Sigil version from Maven Central.
 
 ---
 

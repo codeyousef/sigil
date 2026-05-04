@@ -13,9 +13,11 @@ This guide will help you set up a basic Sigil project and render a simple 3D sce
 Add the following dependencies to your `build.gradle.kts` (commonMain source set):
 
 ```kotlin
-implementation("codes.yousef.sigil:sigil-compose:0.4.0.4")
-implementation("codes.yousef.sigil:sigil-schema:0.4.0.4")
+implementation("codes.yousef.sigil:sigil-compose:<version>")
+implementation("codes.yousef.sigil:sigil-schema:<version>")
 ```
+
+Replace `<version>` with the latest Sigil version from Maven Central.
 
 Ensure you have the correct repositories configured (e.g., Maven Local or a snapshot repository if not on Maven Central).
 

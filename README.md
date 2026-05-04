@@ -27,12 +27,14 @@
 Add Sigil to your `commonMain` dependencies in `build.gradle.kts`:
 
 ```kotlin
-implementation("codes.yousef.sigil:sigil-compose:0.4.0.4")
-implementation("codes.yousef.sigil:sigil-schema:0.4.0.4")
+implementation("codes.yousef.sigil:sigil-compose:<version>")
+implementation("codes.yousef.sigil:sigil-schema:<version>")
 
 // For SSR with Ktor, Spring Boot, or Quarkus:
-implementation("codes.yousef.sigil:sigil-summon:0.4.0.4")
+implementation("codes.yousef.sigil:sigil-summon:<version>")
 ```
+
+Replace `<version>` with the latest Sigil version from Maven Central.
 
 ## 🚀 Quick Start
 
