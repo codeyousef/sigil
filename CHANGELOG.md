@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.4.0.8] - 2026-05-04
+
+### Added
+
+- Typed scene callback response payloads for applying Sigil scene patches after a `MateriaCanvas` scene-event callback completes
+- DOM and Summon patch response helpers for no-reload HUD or surrounding UI updates from scene-event callbacks
+
+### Changed
+
+- Scene-event callback responses are now parsed as patch-capable payloads, applied to the active hydrated scene, and only fall back to reload when no patch was applied
+- Interactive scene drag handlers now capture and suppress mouse gestures before camera controls can consume them
+- The hydration bundle was rebuilt with the no-reload scene callback patch path and drag control capture fix
+
+### Tests
+
+- Added regression coverage for callback response scene patch selection and DOM/Summon patch collection
+- Verified the scene callback patch bridge across JVM, JS node, browser, and packaged hydration bundle tasks
+
 ## [0.4.0.7] - 2026-05-04
 
 ### Added

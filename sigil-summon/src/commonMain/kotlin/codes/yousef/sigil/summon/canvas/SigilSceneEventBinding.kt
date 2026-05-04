@@ -1,5 +1,7 @@
 package codes.yousef.sigil.summon.canvas
 
+import codes.yousef.sigil.schema.ScenePatch
+import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
 /**
@@ -27,6 +29,56 @@ data class SigilSceneEventBinding(
     val preventDefault: Boolean = true,
     val stopPropagation: Boolean = false
 )
+
+@Serializable
+data class SigilSceneEventCallbackResponse(
+    val action: String? = null,
+    val status: String? = null,
+    val scenePatch: ScenePatch? = null,
+    val sigilPatch: ScenePatch? = null,
+    val patch: ScenePatch? = null,
+    val patches: List<SigilScenePatchTarget> = emptyList(),
+    val scenePatches: List<SigilScenePatchTarget> = emptyList(),
+    val domPatch: SigilDomPatch? = null,
+    val domPatches: List<SigilDomPatch> = emptyList(),
+    val summonPatch: SigilDomPatch? = null,
+    val summonPatches: List<SigilDomPatch> = emptyList()
+) {
+    val wantsReload: Boolean
+        get() = action == "reload"
+
+    fun scenePatchesFor(canvasId: String): List<ScenePatch> =
+        listOfNotNull(scenePatch, sigilPatch, patch)
+            .filter { it.nodes.isNotEmpty() } +
+            (patches + scenePatches)
+                .filter { it.canvasId == null || it.canvasId == canvasId }
+                .mapNotNull { it.patch?.takeIf { patch -> patch.nodes.isNotEmpty() } }
+
+    fun domPatchesToApply(): List<SigilDomPatch> =
+        listOfNotNull(domPatch, summonPatch) + domPatches + summonPatches
+}
+
+@Serializable
+data class SigilScenePatchTarget(
+    val canvasId: String? = null,
+    val patch: ScenePatch? = null
+)
+
+@Serializable
+data class SigilDomPatch(
+    val selector: String,
+    val html: String? = null,
+    val text: String? = null,
+    val mode: SigilDomPatchMode = SigilDomPatchMode.INNER_HTML
+)
+
+@Serializable
+enum class SigilDomPatchMode {
+    @SerialName("innerHtml") INNER_HTML,
+    @SerialName("outerHtml") OUTER_HTML,
+    @SerialName("textContent") TEXT_CONTENT,
+    @SerialName("remove") REMOVE
+}
 
 @Serializable
 data class SigilSceneEventMatch(

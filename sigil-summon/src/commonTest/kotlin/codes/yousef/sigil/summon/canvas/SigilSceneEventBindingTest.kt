@@ -1,6 +1,8 @@
 package codes.yousef.sigil.summon.canvas
 
 import codes.yousef.sigil.schema.SigilJson
+import codes.yousef.sigil.schema.SceneNodePatch
+import codes.yousef.sigil.schema.ScenePatch
 import kotlin.test.Test
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
@@ -113,6 +115,45 @@ class SigilSceneEventBindingTest {
         ))
         assertTrue(restored.single().reloadOnSuccess == true)
         assertTrue(restored.single().stopPropagation)
+    }
+
+    @Test
+    fun callbackResponsesExposeCurrentCanvasScenePatches() {
+        val response = SigilSceneEventCallbackResponse(
+            action = "reload",
+            patches = listOf(
+                SigilScenePatchTarget(
+                    canvasId = "scene-a",
+                    patch = ScenePatch(nodes = listOf(SceneNodePatch(interactionId = "package:1", visible = false)))
+                ),
+                SigilScenePatchTarget(
+                    canvasId = "scene-b",
+                    patch = ScenePatch(nodes = listOf(SceneNodePatch(interactionId = "package:2", visible = false)))
+                )
+            )
+        )
+
+        val scenePatches = response.scenePatchesFor("scene-a")
+
+        assertTrue(response.wantsReload)
+        assertTrue(scenePatches.size == 1)
+        assertTrue(scenePatches.single().nodes.single().interactionId == "package:1")
+    }
+
+    @Test
+    fun callbackResponsesCollectDomAndSummonPatches() {
+        val response = SigilSceneEventCallbackResponse(
+            domPatch = SigilDomPatch(selector = "#processed", text = "Processed 1/10"),
+            summonPatches = listOf(
+                SigilDomPatch(selector = "#score", text = "Score 50", mode = SigilDomPatchMode.TEXT_CONTENT)
+            )
+        )
+
+        val patches = response.domPatchesToApply()
+
+        assertTrue(patches.size == 2)
+        assertTrue(patches.any { it.selector == "#processed" })
+        assertTrue(patches.any { it.selector == "#score" })
     }
 
     private fun dropPayload(

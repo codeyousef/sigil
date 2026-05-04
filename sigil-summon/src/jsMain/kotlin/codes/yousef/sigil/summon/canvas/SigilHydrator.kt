@@ -943,6 +943,7 @@ class SigilHydrator(
             val hit = pickInteractionHit(mouseEvent) ?: return@mouseDown
             val node = hit.node
             val interaction = interactionForNode(node) ?: return@mouseDown
+            suppressControlGesture(mouseEvent)
             dispatchSceneEvent("pointerdown", mouseEvent, node, hit.intersection)
 
             val drag = interaction.drag
@@ -956,7 +957,6 @@ class SigilHydrator(
                 )
                 setCanvasCursor(CursorHint.GRABBING)
                 dispatchSceneEvent("dragstart", mouseEvent, node, hit.intersection, activeDrag)
-                mouseEvent.preventDefault()
             }
         }
 
@@ -964,6 +964,7 @@ class SigilHydrator(
             val mouseEvent = event as? MouseEvent ?: return@mouseMove
             val drag = activeDrag
             if (drag != null) {
+                suppressControlGesture(mouseEvent)
                 updateDragPosition(drag, mouseEvent)
                 val (target, evaluation) = pickDropTarget(mouseEvent, drag)
                 val targetState = evaluation?.let { dropStateFor(it) }
@@ -987,7 +988,6 @@ class SigilHydrator(
                     target?.let { setDropTargetState(it, targetState) }
                 }
                 dispatchSceneEvent("drag", mouseEvent, drag.source, null, drag)
-                mouseEvent.preventDefault()
                 return@mouseMove
             }
 
@@ -1006,6 +1006,7 @@ class SigilHydrator(
             val mouseEvent = event as? MouseEvent ?: return@mouseUp
             val drag = activeDrag
             if (drag != null) {
+                suppressControlGesture(mouseEvent)
                 drag.target?.let { target ->
                     dispatchSceneEvent("drop", mouseEvent, target, null, drag)
                     setDropTargetState(target, null)
@@ -1017,7 +1018,6 @@ class SigilHydrator(
                 dispatchSceneEvent("dragend", mouseEvent, drag.source, null, drag)
                 activeDrag = null
                 setCanvasCursor(CursorHint.AUTO)
-                mouseEvent.preventDefault()
                 return@mouseUp
             }
 
@@ -1031,25 +1031,32 @@ class SigilHydrator(
             val mouseEvent = event as? MouseEvent ?: return@click
             val hit = pickInteractive(mouseEvent)
             hit.second?.let { node ->
+                suppressControlGesture(mouseEvent)
                 dispatchSceneEvent("click", mouseEvent, node, hit.first)
             }
         }
 
-        canvas.addEventListener("mousedown", mouseDown)
-        canvas.addEventListener("mousemove", mouseMove)
-        canvas.addEventListener("mouseup", mouseUp)
-        canvas.addEventListener("click", click)
+        canvas.addEventListener("mousedown", mouseDown, true)
+        canvas.addEventListener("mousemove", mouseMove, true)
+        canvas.addEventListener("mouseup", mouseUp, true)
+        canvas.addEventListener("click", click, true)
 
         return {
             updateHoverDropTarget(null)
             activeDrag?.target?.let { setDropTargetState(it, null) }
             activeDrag = null
-            canvas.removeEventListener("mousedown", mouseDown)
-            canvas.removeEventListener("mousemove", mouseMove)
-            canvas.removeEventListener("mouseup", mouseUp)
-            canvas.removeEventListener("click", click)
+            canvas.removeEventListener("mousedown", mouseDown, true)
+            canvas.removeEventListener("mousemove", mouseMove, true)
+            canvas.removeEventListener("mouseup", mouseUp, true)
+            canvas.removeEventListener("click", click, true)
             canvas.style.setProperty("cursor", "auto")
         }
+    }
+
+    private fun suppressControlGesture(event: MouseEvent) {
+        event.preventDefault()
+        event.stopPropagation()
+        event.asDynamic().stopImmediatePropagation()
     }
 
     private fun pickInteractive(event: MouseEvent): Pair<Intersection?, Object3D?> {
@@ -1413,10 +1420,15 @@ class SigilHydrator(
         val url = "/summon/callback/${encodeURIComponent(callbackId)}"
         window.asDynamic().fetch(url, options)
             .then({ response: dynamic ->
-                response.json()
-                    .then({ body: dynamic ->
-                        val responseWantsReload = (body.action as? String) == "reload"
-                        if (reloadOnSuccess == true || (reloadOnSuccess == null && responseWantsReload)) {
+                response.text()
+                    .then({ bodyText: String ->
+                        val callbackResponse = parseCallbackResponse(bodyText)
+                        val appliedPatch = callbackResponse?.let(::applyCallbackResponse) == true
+                        val responseWantsReload = callbackResponse?.wantsReload == true
+                        if (
+                            reloadOnSuccess == true ||
+                            (reloadOnSuccess == null && responseWantsReload && !appliedPatch)
+                        ) {
                             window.location.reload()
                         }
                         null
@@ -1432,6 +1444,65 @@ class SigilHydrator(
                 console.error("Sigil: Summon scene callback failed:", error)
                 null
             })
+    }
+
+    private fun parseCallbackResponse(bodyText: String): SigilSceneEventCallbackResponse? {
+        if (bodyText.isBlank()) return null
+        return try {
+            SigilJson.decodeFromString<SigilSceneEventCallbackResponse>(bodyText)
+        } catch (e: Exception) {
+            console.warn("Sigil: Scene callback returned non-patch response: ${e.message}")
+            null
+        }
+    }
+
+    private fun applyCallbackResponse(response: SigilSceneEventCallbackResponse): Boolean {
+        var applied = false
+
+        response.scenePatchesFor(canvas.id).forEach { patch ->
+            applyPatch(patch)
+            applied = true
+        }
+
+        response.domPatchesToApply().forEach { patch ->
+            if (applyDomPatch(patch)) {
+                applied = true
+            }
+        }
+
+        if (applied || response.action != null || response.status != null) {
+            dispatchSceneActionResponse(response, applied)
+        }
+
+        return applied
+    }
+
+    private fun applyDomPatch(patch: SigilDomPatch): Boolean {
+        val element = document.querySelector(patch.selector) ?: return false
+        when (patch.mode) {
+            SigilDomPatchMode.INNER_HTML -> {
+                element.innerHTML = patch.html ?: patch.text ?: return false
+            }
+            SigilDomPatchMode.OUTER_HTML -> {
+                element.outerHTML = patch.html ?: patch.text ?: return false
+            }
+            SigilDomPatchMode.TEXT_CONTENT -> {
+                element.textContent = patch.text ?: patch.html ?: return false
+            }
+            SigilDomPatchMode.REMOVE -> {
+                element.parentElement?.removeChild(element) ?: return false
+            }
+        }
+        return true
+    }
+
+    private fun dispatchSceneActionResponse(response: SigilSceneEventCallbackResponse, appliedPatch: Boolean) {
+        val detail = js("{}")
+        detail.action = response.action
+        detail.status = response.status
+        detail.appliedPatch = appliedPatch
+        detail.canvasId = canvas.id
+        dispatchBrowserEvent("sigil:scene-action-response", detail)
     }
 
     private fun expandSceneEventUrl(template: String, payload: SigilSceneEventPayload): String {
