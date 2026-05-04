@@ -42,6 +42,16 @@ internal object SigilGltfMetadata {
     fun isGlbUrl(url: String): Boolean =
         cleanAssetUrl(url).endsWith(".glb", ignoreCase = true)
 
+    fun companionGltfUrlForGlb(url: String): String? {
+        val cleanUrl = cleanAssetUrl(url)
+        if (!cleanUrl.endsWith(".glb", ignoreCase = true)) return null
+
+        val withoutExtension = cleanUrl.dropLast(4)
+        val baseName = withoutExtension.substringAfterLast("/")
+        if (baseName.isBlank()) return null
+        return "$withoutExtension/$baseName.gltf"
+    }
+
     fun resolveAssetPath(requested: String, basePath: String? = null, modelUrl: String? = null): String {
         if (requested.isBlank() || requested.isAbsoluteAssetPath()) return requested
 
@@ -61,6 +71,29 @@ internal object SigilGltfMetadata {
     fun glbToGltfJson(glbBytes: ByteArray): String {
         val glb = parseGlb(glbBytes)
         return embedGlbResources(glb.json, glb.binaryChunk)
+    }
+
+    fun shouldPreferCompanionGltf(glbJson: String, companionGltfJson: String): Boolean {
+        val glbPrimitives = primitiveAttributes(glbJson)
+        val companionPrimitives = primitiveAttributes(companionGltfJson)
+        if (glbPrimitives.isEmpty() || glbPrimitives.size != companionPrimitives.size) return false
+
+        return companionPrimitives.zip(glbPrimitives).any { (companion, glb) ->
+            "COLOR_0" in companion && "COLOR_0" !in glb
+        }
+    }
+
+    fun rewriteRelativeAssetUris(gltfJson: String, modelUrl: String): String {
+        val root = Json.parseToJsonElement(gltfJson).jsonObject
+        return buildJsonObject {
+            for ((key, value) in root) {
+                when (key) {
+                    "buffers" -> put(key, rewriteUriArray(value, modelUrl))
+                    "images" -> put(key, rewriteUriArray(value, modelUrl))
+                    else -> put(key, value)
+                }
+            }
+        }.toString()
     }
 
     fun extractBaseColorTextures(gltfJson: String): List<GltfBaseColorTexture> {
@@ -113,6 +146,41 @@ internal object SigilGltfMetadata {
 
     private fun cleanAssetUrl(url: String): String =
         url.substringBefore("?").substringBefore("#")
+
+    private fun primitiveAttributes(gltfJson: String): List<Set<String>> {
+        val root = Json.parseToJsonElement(gltfJson).jsonObject
+        return root.arrayOrEmpty("meshes").flatMap { mesh ->
+            val meshObject = mesh as? JsonObject ?: return@flatMap emptyList()
+            meshObject.arrayOrEmpty("primitives").map { primitive ->
+                val primitiveObject = primitive as? JsonObject
+                val attributes = primitiveObject?.get("attributes") as? JsonObject
+                attributes?.keys ?: emptySet()
+            }
+        }
+    }
+
+    private fun rewriteUriArray(value: JsonElement, modelUrl: String): JsonArray {
+        val array = value as? JsonArray ?: return JsonArray(emptyList())
+        return buildJsonArray {
+            array.forEach { element ->
+                val obj = element as? JsonObject
+                val uri = obj?.get("uri")?.jsonPrimitive?.contentOrNull
+                if (obj == null || uri.isNullOrBlank() || uri.isAbsoluteAssetPath()) {
+                    add(element)
+                } else {
+                    add(buildJsonObject {
+                        for ((key, existingValue) in obj) {
+                            put(
+                                key,
+                                if (key == "uri") JsonPrimitive(resolveAssetPath(uri, modelUrl = modelUrl))
+                                else existingValue
+                            )
+                        }
+                    })
+                }
+            }
+        }
+    }
 
     private fun parseGlb(bytes: ByteArray): ParsedGlb {
         require(bytes.size >= 20) { "GLB file is too small" }
