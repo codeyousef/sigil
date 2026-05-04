@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.4.0.2] - 2026-05-04
+
+### Changed
+
+- Documentation dependency snippets updated to version 0.4.0.2
+- The hydration bundle was rebuilt with the GLTF baseColor texture fidelity fix
+
+### Fixed
+
+- Generic Sigil hydration now decodes GLTF baseColor textures without relying on the Materia 0.4.0.0 browser `TextureLoader` path that could throw `s.asDynamic is not a function`
+- GLTF baseColor texture hydration now preserves declared or inferred image MIME types for local, relative, and embedded texture assets
+- Base color texture loading now uses the Sigil-relative asset resolver before building Materia `Texture2D` instances with mipmapped filtering
+
+### Tests
+
+- Added regression coverage for GLTF image MIME metadata and browser texture decoding from a textured GLTF fixture
+
 ## [0.4.0.1] - 2026-05-04
 
 ### Changed
