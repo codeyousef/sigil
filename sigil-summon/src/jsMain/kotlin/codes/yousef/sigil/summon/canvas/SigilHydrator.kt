@@ -60,7 +60,6 @@ import io.materia.geometry.DodecahedronGeometry
 import io.materia.geometry.BufferGeometry
 import io.materia.loader.AssetResolver
 import io.materia.loader.GLTFLoader
-import io.materia.loader.TextureLoader
 import io.materia.lighting.AmbientLightImpl
 import io.materia.lighting.DirectionalLightImpl
 import io.materia.lighting.PointLightImpl
@@ -750,8 +749,7 @@ class SigilHydrator(
         }
         if (baseColorTextures.isEmpty()) return
 
-        val textureLoader = TextureLoader(assetResolver)
-        val textureOptions = TextureLoader.TextureOptions(
+        val textureOptions = SigilTextureOptions(
             generateMipmaps = true,
             flipY = false,
             anisotropy = 4f,
@@ -762,7 +760,12 @@ class SigilHydrator(
         for (textureInfo in baseColorTextures) {
             val material = materials.getOrNull(textureInfo.materialIndex) ?: continue
             val texture = try {
-                textureLoader.load(textureInfo.uri, textureOptions)
+                SigilBrowserTextureLoader.load(
+                    uri = textureInfo.uri,
+                    mimeType = textureInfo.mimeType,
+                    assetResolver = assetResolver,
+                    options = textureOptions
+                )
             } catch (t: Throwable) {
                 console.warn("Sigil: Could not load glTF baseColor texture ${textureInfo.uri}: ${t.message}")
                 continue

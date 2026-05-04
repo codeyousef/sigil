@@ -21,6 +21,7 @@ internal data class GltfBaseColorTexture(
     val textureIndex: Int,
     val imageIndex: Int,
     val uri: String,
+    val mimeType: String?,
     val baseColorFactor: List<Float>
 )
 
@@ -83,8 +84,30 @@ internal object SigilGltfMetadata {
                 textureIndex = textureIndex,
                 imageIndex = imageIndex,
                 uri = uri,
+                mimeType = image["mimeType"]?.jsonPrimitive?.contentOrNull,
                 baseColorFactor = pbr.floatArrayOrDefault("baseColorFactor", listOf(1f, 1f, 1f, 1f))
             )
+        }
+    }
+
+    fun imageMimeType(uri: String, declaredMimeType: String? = null): String {
+        declaredMimeType?.takeIf { it.startsWith("image/", ignoreCase = true) }?.let { return it }
+
+        if (uri.startsWith("data:", ignoreCase = true)) {
+            val metadata = uri.substringAfter("data:", missingDelimiterValue = "")
+                .substringBefore(",", missingDelimiterValue = "")
+            val mimeType = metadata.substringBefore(";").takeIf { it.startsWith("image/", ignoreCase = true) }
+            if (mimeType != null) return mimeType
+        }
+
+        val lowerUri = cleanAssetUrl(uri).lowercase()
+        return when {
+            lowerUri.endsWith(".jpg") || lowerUri.endsWith(".jpeg") -> "image/jpeg"
+            lowerUri.endsWith(".png") -> "image/png"
+            lowerUri.endsWith(".webp") -> "image/webp"
+            lowerUri.endsWith(".gif") -> "image/gif"
+            lowerUri.endsWith(".bmp") -> "image/bmp"
+            else -> "application/octet-stream"
         }
     }
 

@@ -60,7 +60,41 @@ class SigilGltfMetadataTest {
         assertEquals(0, metadata.single().textureIndex)
         assertEquals(0, metadata.single().imageIndex)
         assertEquals("textures/atlas.png", metadata.single().uri)
+        assertEquals(null, metadata.single().mimeType)
         assertEquals(listOf(0.25f, 0.5f, 0.75f, 0.8f), metadata.single().baseColorFactor)
+    }
+
+    @Test
+    fun extractBaseColorTextures_readsFixtureImageMimeType() {
+        val metadata = SigilGltfMetadata.extractBaseColorTextures(
+            """
+            {
+              "asset": { "version": "2.0" },
+              "materials": [
+                {
+                  "pbrMetallicRoughness": {
+                    "baseColorTexture": { "index": 0 },
+                    "baseColorFactor": [1, 0.8, 0.5, 1]
+                  }
+                }
+              ],
+              "textures": [{ "source": 0 }],
+              "images": [{ "uri": "baseColor.jpg", "mimeType": "image/jpeg" }]
+            }
+            """.trimIndent()
+        )
+
+        assertEquals(1, metadata.size)
+        assertEquals("baseColor.jpg", metadata.single().uri)
+        assertEquals("image/jpeg", metadata.single().mimeType)
+        assertEquals("image/jpeg", SigilGltfMetadata.imageMimeType(metadata.single().uri, metadata.single().mimeType))
+    }
+
+    @Test
+    fun imageMimeType_infersCommonTextureExtensions() {
+        assertEquals("image/jpeg", SigilGltfMetadata.imageMimeType("models/pkg/baseColor.JPG?rev=1"))
+        assertEquals("image/png", SigilGltfMetadata.imageMimeType("data:image/png;base64,AAAA"))
+        assertEquals("image/webp", SigilGltfMetadata.imageMimeType("textures/albedo.webp#atlas"))
     }
 
     @Test
@@ -98,6 +132,7 @@ class SigilGltfMetadataTest {
         assertTrue(gltfJson.contains("\"uri\":\"data:application/octet-stream;base64,CgsMDQECAwQ=\""))
         val textures = SigilGltfMetadata.extractBaseColorTextures(gltfJson)
         assertEquals("data:image/png;base64,AQIDBA==", textures.single().uri)
+        assertEquals("image/png", textures.single().mimeType)
         assertEquals(listOf(1f, 0.5f, 0.25f, 1f), textures.single().baseColorFactor)
     }
 
