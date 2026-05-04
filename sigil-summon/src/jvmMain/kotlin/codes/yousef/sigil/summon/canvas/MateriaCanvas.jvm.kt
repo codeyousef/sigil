@@ -141,9 +141,45 @@ private fun buildHydrationScript(canvasId: String): String {
                     document.head.appendChild(script);
                 });
             }
+
+            function nextLayoutFrame() {
+                return new Promise((resolve) => {
+                    if (typeof window.requestAnimationFrame === 'function') {
+                        window.requestAnimationFrame(() => resolve());
+                    } else {
+                        setTimeout(resolve, 16);
+                    }
+                });
+            }
+
+            async function waitForCanvasLayout() {
+                const element = document.getElementById('$canvasId');
+                if (!element) return;
+
+                let stableKey = '';
+                let stableFrames = 0;
+                for (let attempt = 0; attempt < 30; attempt++) {
+                    await nextLayoutFrame();
+                    const target = element.parentElement || element;
+                    const rect = target.getBoundingClientRect();
+                    const width = Math.round(rect.width);
+                    const height = Math.round(rect.height);
+                    if (width <= 1 || height <= 1) continue;
+
+                    const key = width + 'x' + height;
+                    if (key === stableKey) {
+                        stableFrames += 1;
+                        if (stableFrames >= 2) return;
+                    } else {
+                        stableKey = key;
+                        stableFrames = 1;
+                    }
+                }
+            }
             
             async function hydrateSigil() {
                 try {
+                    await waitForCanvasLayout();
                     await loadSigilBundle();
                     const dataElement = document.getElementById('$canvasId-data');
                     if (dataElement) {

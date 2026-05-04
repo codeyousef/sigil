@@ -6,6 +6,7 @@ import io.materia.renderer.TextureFormat
 import io.materia.renderer.TextureWrap
 import io.materia.texture.Texture2D
 import kotlinx.browser.document
+import kotlinx.coroutines.CompletableDeferred
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 import kotlin.coroutines.suspendCoroutine
@@ -24,6 +25,9 @@ internal data class SigilTextureOptions(
 )
 
 internal object SigilBrowserTextureLoader {
+    private val decodedImageCache = mutableMapOf<String, BrowserDecodedImage>()
+    private val pendingDecodedImages = mutableMapOf<String, CompletableDeferred<BrowserDecodedImage>>()
+
     fun isBrowserImageApiAvailable(): Boolean =
         js(
             "typeof globalThis !== 'undefined' && " +
@@ -41,14 +45,7 @@ internal object SigilBrowserTextureLoader {
             "Browser image and canvas APIs are required to decode glTF textures"
         }
 
-        val dataUri = if (uri.startsWith("data:", ignoreCase = true)) {
-            uri
-        } else {
-            val bytes = assetResolver.load(uri, null)
-            bytes.toImageDataUri(SigilGltfMetadata.imageMimeType(uri, mimeType))
-        }
-
-        val image = decodeImageData(dataUri)
+        val image = loadDecodedImage(uri, mimeType, assetResolver)
         val pixels = if (options.flipY) {
             flipImageY(image.data, image.width, image.height)
         } else {
@@ -70,6 +67,37 @@ internal object SigilBrowserTextureLoader {
             wrapS = options.wrapS
             wrapT = options.wrapT
             needsUpdate = true
+        }
+    }
+
+    private suspend fun loadDecodedImage(
+        uri: String,
+        mimeType: String?,
+        assetResolver: AssetResolver
+    ): BrowserDecodedImage {
+        val cacheKey = imageCacheKey(uri, mimeType)
+        decodedImageCache[cacheKey]?.let { return it }
+        pendingDecodedImages[cacheKey]?.let { return it.await() }
+
+        val pending = CompletableDeferred<BrowserDecodedImage>()
+        pendingDecodedImages[cacheKey] = pending
+
+        return try {
+            val dataUri = if (uri.startsWith("data:", ignoreCase = true)) {
+                uri
+            } else {
+                val bytes = assetResolver.load(uri, null)
+                bytes.toImageDataUri(SigilGltfMetadata.imageMimeType(uri, mimeType))
+            }
+            val image = decodeImageData(dataUri)
+            decodedImageCache[cacheKey] = image
+            pending.complete(image)
+            image
+        } catch (t: Throwable) {
+            pending.completeExceptionally(t)
+            throw t
+        } finally {
+            pendingDecodedImages.remove(cacheKey)
         }
     }
 
@@ -125,6 +153,9 @@ internal object SigilBrowserTextureLoader {
             .substringAfterLast("/")
             .takeIf { it.isNotBlank() && !it.startsWith("data:", ignoreCase = true) }
             ?: "gltf-base-color"
+
+    private fun imageCacheKey(uri: String, mimeType: String?): String =
+        "${mimeType ?: ""}|$uri"
 
     @OptIn(ExperimentalEncodingApi::class)
     private fun ByteArray.toImageDataUri(mimeType: String): String =

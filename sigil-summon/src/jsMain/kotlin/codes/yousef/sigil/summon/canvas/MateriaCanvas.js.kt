@@ -51,8 +51,47 @@ actual fun MateriaCanvas(
  */
 private fun scheduleHydration(canvasId: String, fallbackScene: SigilScene) {
     window.setTimeout({
-        performHydration(canvasId, fallbackScene)
+        waitForStableCanvasLayout(canvasId) {
+            performHydration(canvasId, fallbackScene)
+        }
     }, 0)
+}
+
+private fun waitForStableCanvasLayout(canvasId: String, onReady: () -> Unit) {
+    var stableKey = ""
+    var stableFrames = 0
+    var attempts = 0
+
+    fun checkLayout() {
+        attempts += 1
+        val element = document.getElementById(canvasId)
+        val target = element?.parentElement ?: element
+        val rect = target?.asDynamic()?.getBoundingClientRect()
+        val width = if (rect != null) (rect.width as Number).toInt() else 0
+        val height = if (rect != null) (rect.height as Number).toInt() else 0
+
+        if (width > 1 && height > 1) {
+            val key = "${width}x$height"
+            if (key == stableKey) {
+                stableFrames += 1
+                if (stableFrames >= 2) {
+                    onReady()
+                    return
+                }
+            } else {
+                stableKey = key
+                stableFrames = 1
+            }
+        }
+
+        if (attempts >= 30) {
+            onReady()
+        } else {
+            window.requestAnimationFrame { checkLayout() }
+        }
+    }
+
+    window.requestAnimationFrame { checkLayout() }
 }
 
 /**
