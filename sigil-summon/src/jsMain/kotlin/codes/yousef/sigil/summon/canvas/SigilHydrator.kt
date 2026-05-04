@@ -76,6 +76,7 @@ import io.materia.texture.Texture
 import io.materia.texture.Texture2D
 import kotlinx.browser.document
 import kotlinx.browser.window
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.MainScope
 import kotlinx.coroutines.launch
 import org.w3c.dom.HTMLCanvasElement
@@ -117,11 +118,11 @@ private class SigilRelativeAssetResolver(
     override suspend fun load(uri: String, basePath: String?): ByteArray {
         if (uri == modelUrl) return loadModelDocument(basePath)
         val resolved = SigilGltfMetadata.resolveAssetPath(uri, basePath, modelUrl)
-        return delegate.load(resolved, null)
+        return loadDelegateWithRetry(resolved, null)
     }
 
     private suspend fun loadModelDocument(basePath: String?): ByteArray {
-        if (!SigilGltfMetadata.isGlbUrl(modelUrl)) return delegate.load(modelUrl, basePath)
+        if (!SigilGltfMetadata.isGlbUrl(modelUrl)) return loadDelegateWithRetry(modelUrl, basePath)
 
         val json = transformedGlbJson ?: loadGlbDocumentWithCompanionFallback(basePath)
             .also { transformedGlbJson = it }
@@ -129,10 +130,10 @@ private class SigilRelativeAssetResolver(
     }
 
     private suspend fun loadGlbDocumentWithCompanionFallback(basePath: String?): String {
-        val glbJson = SigilGltfMetadata.glbToGltfJson(delegate.load(modelUrl, basePath))
+        val glbJson = SigilGltfMetadata.glbToGltfJson(loadDelegateWithRetry(modelUrl, basePath))
         val companionUrl = SigilGltfMetadata.companionGltfUrlForGlb(modelUrl) ?: return glbJson
         val companionJson = try {
-            delegate.load(companionUrl, null).decodeToString()
+            loadDelegateWithRetry(companionUrl, null).decodeToString()
         } catch (_: Throwable) {
             return glbJson
         }
@@ -143,6 +144,19 @@ private class SigilRelativeAssetResolver(
         } else {
             glbJson
         }
+    }
+
+    private suspend fun loadDelegateWithRetry(uri: String, basePath: String?): ByteArray {
+        var lastFailure: Throwable? = null
+        repeat(4) { attempt ->
+            try {
+                return delegate.load(uri, basePath)
+            } catch (t: Throwable) {
+                lastFailure = t
+                if (attempt < 3) delay((attempt + 1) * 120L)
+            }
+        }
+        throw lastFailure ?: IllegalStateException("Asset load failed for $uri")
     }
 }
 
@@ -308,6 +322,9 @@ class SigilHydrator(
     private fun configureInitializedRenderer(renderer: Renderer) {
         renderer.resize(canvas.width, canvas.height)
         (renderer as? WebGPURenderer)?.clearColor = intToColor(sceneData.settings.backgroundColor)
+        if (renderer is WebGLRenderer) {
+            bakeSceneTexturesForWebGl()
+        }
     }
 
     private fun rendererOverride(): String? {
@@ -618,7 +635,30 @@ class SigilHydrator(
             mesh.receiveShadow = data.receiveShadow
             preserveGltfGeometryAttributes(mesh)
             configureMaterialTextureFidelity(mesh.material)
+            if (renderer is WebGLRenderer) {
+                bakeBaseColorTextureForWebGl(mesh)
+            }
             applyMaterialOverrides(mesh, data.materialOverrides)
+        }
+    }
+
+    private fun bakeSceneTexturesForWebGl() {
+        materiaScene.traverse { node ->
+            (node as? Mesh)?.let(::bakeBaseColorTextureForWebGl)
+        }
+    }
+
+    private fun bakeBaseColorTextureForWebGl(mesh: Mesh) {
+        if (SigilWebGlTextureBaker.bakeBaseColorTexture(mesh)) {
+            when (val material = mesh.material) {
+                is MeshStandardMaterial -> {
+                    material.vertexColors = true
+                    material.needsUpdate = true
+                }
+                is MeshBasicMaterial -> {
+                    material.needsUpdate = true
+                }
+            }
         }
     }
 
@@ -775,15 +815,16 @@ class SigilHydrator(
 
         for (textureInfo in baseColorTextures) {
             val material = materials.getOrNull(textureInfo.materialIndex) ?: continue
+            val textureUri = SigilGltfMetadata.resolveAssetPath(textureInfo.uri, modelUrl = modelUrl)
             val texture = try {
                 SigilBrowserTextureLoader.load(
-                    uri = textureInfo.uri,
+                    uri = textureUri,
                     mimeType = textureInfo.mimeType,
                     assetResolver = assetResolver,
                     options = textureOptions
                 )
             } catch (t: Throwable) {
-                console.warn("Sigil: Could not load glTF baseColor texture ${textureInfo.uri}: ${t.message}")
+                console.warn("Sigil: Could not load glTF baseColor texture $textureUri: ${t.message}")
                 continue
             }
 
