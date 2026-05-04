@@ -47,7 +47,14 @@ class SigilNodeDataTest {
                 cursor = CursorHint.GRAB,
                 events = listOf("select", "drop"),
                 drag = DragMetadata(dropGroups = listOf("inventory")),
-                dropTarget = DropTargetMetadata(groups = listOf("inventory"))
+                dropTarget = DropTargetMetadata(
+                    groups = listOf("inventory"),
+                    states = DropTargetStateMetadata(
+                        hover = HighlightPatch(active = true, color = 0xFF38BDF8.toInt()),
+                        valid = HighlightPatch(active = true, color = 0xFF22C55E.toInt()),
+                        invalid = HighlightPatch(active = true, color = 0xFFEF4444.toInt())
+                    )
+                )
             ),
             animations = listOf(
                 SceneAnimationData(
@@ -65,6 +72,9 @@ class SigilNodeDataTest {
         assertEquals(CursorHint.GRAB, restored.interaction?.cursor)
         assertEquals(listOf("select", "drop"), restored.interaction?.events)
         assertEquals(listOf("inventory"), restored.interaction?.drag?.dropGroups)
+        assertEquals(0xFF38BDF8.toInt(), restored.interaction?.dropTarget?.states?.hover?.color)
+        assertEquals(0xFF22C55E.toInt(), restored.interaction?.dropTarget?.states?.valid?.color)
+        assertEquals(0xFFEF4444.toInt(), restored.interaction?.dropTarget?.states?.invalid?.color)
         assertEquals(AnimationKind.PULSE, restored.animations.single().kind)
     }
 
