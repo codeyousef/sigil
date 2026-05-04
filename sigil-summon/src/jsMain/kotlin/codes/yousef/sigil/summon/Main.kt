@@ -36,8 +36,8 @@ fun main() {
     // Export SigilHydrator (MateriaCanvas 3D scenes) to window
     js("window.SigilHydrator = {}")
     val sceneHydrator = js("window.SigilHydrator")
-    sceneHydrator.hydrate = { canvasId: String, sceneData: dynamic ->
-        SigilHydratorGlobal.hydrate(canvasId, sceneData)
+    sceneHydrator.hydrate = { canvasId: String, sceneData: dynamic, sceneEventBindings: dynamic ->
+        SigilHydratorGlobal.hydrate(canvasId, sceneData, sceneEventBindings)
     }
 
     sceneHydrator.patch = { canvasId: String, patchData: dynamic ->

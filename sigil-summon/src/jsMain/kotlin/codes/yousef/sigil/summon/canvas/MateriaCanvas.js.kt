@@ -1,17 +1,20 @@
 package codes.yousef.sigil.summon.canvas
 
 import codes.yousef.summon.annotation.Composable
+import codes.yousef.sigil.schema.SigilJson
 import codes.yousef.sigil.schema.SigilScene
 import codes.yousef.sigil.summon.context.SigilSummonContext
 import kotlinx.browser.document
 import kotlinx.browser.window
 import kotlinx.coroutines.MainScope
 import kotlinx.coroutines.launch
+import kotlinx.serialization.builtins.ListSerializer
 import org.w3c.dom.HTMLCanvasElement
 import org.w3c.dom.HTMLDivElement
 import org.w3c.dom.HTMLScriptElement
 
 private val scope = MainScope()
+private var nextLocalSceneEventHandlerId = 0
 
 /**
  * JS (Client-side) implementation of MateriaCanvas for Summon.
@@ -30,6 +33,40 @@ actual fun MateriaCanvas(
     height: String,
     backgroundColor: Int,
     content: @Composable () -> String
+): String = renderMateriaCanvas(
+    id = id,
+    width = width,
+    height = height,
+    sceneEventHandlers = emptyList(),
+    sceneEventBindings = emptyList(),
+    content = content
+)
+
+@Composable
+actual fun MateriaCanvas(
+    id: String,
+    width: String,
+    height: String,
+    backgroundColor: Int,
+    sceneEventHandlers: List<SigilSceneEventHandler>,
+    sceneEventBindings: List<SigilSceneEventBinding>,
+    content: @Composable () -> String
+): String = renderMateriaCanvas(
+    id = id,
+    width = width,
+    height = height,
+    sceneEventHandlers = sceneEventHandlers,
+    sceneEventBindings = sceneEventBindings,
+    content = content
+)
+
+private fun renderMateriaCanvas(
+    id: String,
+    width: String,
+    height: String,
+    sceneEventHandlers: List<SigilSceneEventHandler>,
+    sceneEventBindings: List<SigilSceneEventBinding>,
+    content: @Composable () -> String
 ): String {
     // On the client, we might be called during initial render
     // In that case, we also execute content to collect nodes
@@ -40,7 +77,8 @@ actual fun MateriaCanvas(
     }
 
     // Schedule hydration for after render
-    scheduleHydration(id, context.buildScene())
+    val localHandlers = registerLocalSceneEventHandlers(sceneEventHandlers)
+    scheduleHydration(id, context.buildScene(), localHandlers, sceneEventBindings)
 
     // Return container HTML (same as server for consistency)
     return """<div id="$id" style="width: $width; height: $height;"></div>"""
@@ -49,10 +87,15 @@ actual fun MateriaCanvas(
 /**
  * Schedule hydration to run after the current execution context.
  */
-private fun scheduleHydration(canvasId: String, fallbackScene: SigilScene) {
+private fun scheduleHydration(
+    canvasId: String,
+    fallbackScene: SigilScene,
+    localHandlers: LocalSceneEventHandlers,
+    sceneEventBindings: List<SigilSceneEventBinding>
+) {
     window.setTimeout({
         waitForStableCanvasLayout(canvasId) {
-            performHydration(canvasId, fallbackScene)
+            performHydration(canvasId, fallbackScene, localHandlers, sceneEventBindings)
         }
     }, 0)
 }
@@ -97,7 +140,12 @@ private fun waitForStableCanvasLayout(canvasId: String, onReady: () -> Unit) {
 /**
  * Perform the actual hydration process.
  */
-private fun performHydration(canvasId: String, fallbackScene: SigilScene) {
+private fun performHydration(
+    canvasId: String,
+    fallbackScene: SigilScene,
+    localHandlers: LocalSceneEventHandlers,
+    sceneEventBindings: List<SigilSceneEventBinding>
+) {
     // Try to get pre-rendered scene data
     val dataElement = document.getElementById("$canvasId-data") as? HTMLScriptElement
     val scene = if (dataElement != null) {
@@ -140,7 +188,13 @@ private fun performHydration(canvasId: String, fallbackScene: SigilScene) {
     // Initialize Materia (async)
     scope.launch {
         try {
-            val hydrator = SigilHydrator(canvas, scene)
+            val embeddedBindings = readEmbeddedSceneEventBindings(canvasId)
+            val hydrator = SigilHydrator(
+                canvas = canvas,
+                sceneData = scene,
+                sceneEventBindings = embeddedBindings + sceneEventBindings + localHandlers.bindings,
+                localSceneEventHandlers = localHandlers.handlers
+            )
             hydrator.initialize()
             hydrator.startRenderLoop()
 
@@ -151,5 +205,34 @@ private fun performHydration(canvasId: String, fallbackScene: SigilScene) {
         } catch (e: Exception) {
             console.error("Sigil: Failed to hydrate scene: ${e.message}")
         }
+    }
+}
+
+private data class LocalSceneEventHandlers(
+    val bindings: List<SigilSceneEventBinding>,
+    val handlers: Map<String, () -> Unit>
+)
+
+private fun registerLocalSceneEventHandlers(handlers: List<SigilSceneEventHandler>): LocalSceneEventHandlers {
+    if (handlers.isEmpty()) return LocalSceneEventHandlers(emptyList(), emptyMap())
+
+    val bindings = mutableListOf<SigilSceneEventBinding>()
+    val localHandlers = mutableMapOf<String, () -> Unit>()
+    handlers.forEach { handler ->
+        val handlerId = "local-${nextLocalSceneEventHandlerId++}"
+        localHandlers[handlerId] = handler.onEvent
+        bindings += handler.toLocalBinding(handlerId)
+    }
+    return LocalSceneEventHandlers(bindings, localHandlers)
+}
+
+private fun readEmbeddedSceneEventBindings(canvasId: String): List<SigilSceneEventBinding> {
+    val actionsElement = document.getElementById("$canvasId-actions") as? HTMLScriptElement ?: return emptyList()
+    val jsonData = actionsElement.textContent ?: "[]"
+    return try {
+        SigilJson.decodeFromString(ListSerializer(SigilSceneEventBinding.serializer()), jsonData)
+    } catch (e: Exception) {
+        console.error("Sigil: Failed to parse scene event actions: ${e.message}")
+        emptyList()
     }
 }
