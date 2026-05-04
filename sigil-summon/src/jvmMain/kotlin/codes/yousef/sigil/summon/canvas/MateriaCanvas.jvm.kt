@@ -134,7 +134,16 @@ private fun buildSceneEventBindings(
 ): List<SigilSceneEventBinding> {
     if (sceneEventHandlers.isEmpty()) return sceneEventBindings
     return sceneEventBindings + sceneEventHandlers.map { handler ->
-        handler.toCallbackBinding(CallbackRegistry.registerCallback(handler.onEvent))
+        val responseHandler = handler.onResponse
+        if (responseHandler == null) {
+            handler.toCallbackBinding(CallbackRegistry.registerCallback(handler.onEvent))
+        } else {
+            val callbackId = SigilSceneCallbackRegistry.registerCallback {
+                handler.onEvent()
+                responseHandler()
+            }
+            handler.toCallbackBinding(callbackId, SigilSceneCallbackRegistry.callbackPath(callbackId))
+        }
     }
 }
 
