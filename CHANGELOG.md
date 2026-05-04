@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.4.0.5] - 2026-05-04
+
+### Changed
+
+- Documentation dependency snippets now use a `<version>` placeholder instead of hardcoding each release number
+- The hydration bundle was rebuilt with the browser interaction picking fixes
+
+### Fixed
+
+- Browser interaction picking now computes camera rays from the hydrated camera and canvas coordinates before dispatching pointer events
+- Hit-volume interaction targets now resolve box and sphere bounds in node-local space, including inferred bounding boxes, before falling back to Materia mesh raycasting
+- Hidden interaction nodes are skipped consistently during hydrated pointer event dispatch
+
+### Tests
+
+- Added JS regression coverage for transformed hit boxes, hit spheres, inferred bounding boxes, and mesh fallback picking
+
 ## [0.4.0.4] - 2026-05-04
 
 ### Changed

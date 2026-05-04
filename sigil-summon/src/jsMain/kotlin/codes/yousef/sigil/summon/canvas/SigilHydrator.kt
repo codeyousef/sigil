@@ -34,6 +34,7 @@ import io.materia.core.scene.Mesh
 import io.materia.core.scene.Group
 import io.materia.core.scene.Background
 import io.materia.core.math.Color
+import io.materia.core.math.Ray
 import io.materia.core.math.Vector2
 import io.materia.core.math.Vector3
 import io.materia.material.Material as BaseMaterial
@@ -1024,28 +1025,60 @@ class SigilHydrator(
     }
 
     private fun pickInteractive(event: MouseEvent): Pair<Intersection?, Object3D?> {
-        val cam = camera ?: return Pair(null, null)
-        val pointer = normalizedPointer(event)
-        raycaster.setFromCamera(pointer, cam)
-        val intersections = raycaster.intersectObject(materiaScene, true)
-        for (intersection in intersections) {
-            val interactive = findInteractiveNode(intersection.`object`)
-            if (interactive != null) return Pair(intersection, interactive)
-        }
-        return Pair(null, null)
+        val hit = pickInteractionHit(event) ?: return Pair(null, null)
+        return Pair(hit.intersection, hit.node)
     }
 
     private fun pickDropTarget(event: MouseEvent, drag: ActiveDrag): Object3D? {
+        return pickInteractionHit(event) { candidate ->
+            candidate != drag.source && acceptsDrop(drag, candidate)
+        }?.node
+    }
+
+    private fun pickInteractionHit(
+        event: MouseEvent,
+        acceptCandidate: (Object3D) -> Boolean = { true }
+    ): SigilInteractionHit? {
         val cam = camera ?: return null
         val pointer = normalizedPointer(event)
-        raycaster.setFromCamera(pointer, cam)
+        materiaScene.updateMatrixWorld(true)
+        val ray = SigilInteractionPicker.rayFromCamera(pointer, cam)
+        val hits = hitVolumeHits(ray) + meshRaycasterHits(ray)
+
+        return hits
+            .sortedBy { it.intersection.distance }
+            .firstOrNull { acceptCandidate(it.node) }
+    }
+
+    private fun hitVolumeHits(ray: Ray): List<SigilInteractionHit> {
+        val hits = mutableListOf<SigilInteractionHit>()
+
+        nodeMap.values.forEach { node ->
+            if (!node.isVisibleInHierarchy()) return@forEach
+            val interaction = interactionForNode(node) ?: return@forEach
+            if (!interaction.enabled || interaction.hitVolume == null) return@forEach
+
+            SigilInteractionPicker.intersectHitVolume(ray, node, interaction)?.let { hit ->
+                hits.add(hit)
+            }
+        }
+
+        return hits
+    }
+
+    private fun meshRaycasterHits(ray: Ray): List<SigilInteractionHit> {
+        raycaster.ray.origin.copy(ray.origin)
+        raycaster.ray.direction.copy(ray.direction)
         val intersections = raycaster.intersectObject(materiaScene, true)
+        val hits = mutableListOf<SigilInteractionHit>()
+
         for (intersection in intersections) {
             val candidate = findInteractiveNode(intersection.`object`) ?: continue
-            if (candidate == drag.source) continue
-            if (acceptsDrop(drag, candidate)) return candidate
+            if (!candidate.isVisibleInHierarchy()) continue
+            hits.add(SigilInteractionHit(intersection, candidate))
         }
-        return null
+
+        return hits
     }
 
     private fun normalizedPointer(event: MouseEvent): Vector2 {
@@ -1065,6 +1098,15 @@ class SigilHydrator(
             current = current.parent
         }
         return null
+    }
+
+    private fun Object3D.isVisibleInHierarchy(): Boolean {
+        var current: Object3D? = this
+        while (current != null) {
+            if (!current.visible) return false
+            current = current.parent
+        }
+        return true
     }
 
     private fun interactionForNode(node: Object3D): InteractionMetadata? {
