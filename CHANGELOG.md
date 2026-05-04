@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.4.0.4] - 2026-05-04
+
+### Changed
+
+- Documentation dependency snippets updated to version 0.4.0.4
+- The hydration bundle was rebuilt with the WebGL GLB material fidelity and stable hydration fixes
+
+### Fixed
+
+- WebGL fallback rendering now bakes glTF baseColor textures through UVs into vertex colors so texture detail remains visible on the lightweight renderer path
+- MateriaCanvas hydration now waits for a stable canvas layout before creating renderer contexts, avoiding blank WebGL canvases when surrounding SSR hydration is still settling
+- Browser asset hydration now retries transient model/texture fetch aborts, resolves model-relative baseColor image paths before loading, and coalesces duplicate in-flight decodes so repeated model instances keep consistent material fidelity
+
+### Tests
+
+- Added regression coverage for WebGL texture color baking
+
 ## [0.4.0.3] - 2026-05-04
 
 ### Changed
@@ -12,13 +29,10 @@
 - Direct GLB hydration now detects same-name expanded glTF companions that contain missing `COLOR_0` vertex colors and uses them only when they restore authored material fidelity
 - Companion glTF buffer and image URIs are rewritten against the companion model path so fallback loading fetches the correct `.bin` and texture assets
 - Direct GLB hydration now preserves companion glTF material and texture fidelity when projects provide expanded asset folders alongside binary models
-- WebGL fallback rendering now bakes glTF baseColor textures through UVs into vertex colors so texture detail remains visible on the lightweight renderer path
-- MateriaCanvas hydration now waits for a stable canvas layout before creating renderer contexts, avoiding blank WebGL canvases when surrounding SSR hydration is still settling
-- Browser asset hydration now retries transient model/texture fetch aborts, resolves model-relative baseColor image paths before loading, and coalesces duplicate in-flight decodes so repeated model instances keep consistent material fidelity
 
 ### Tests
 
-- Added regression coverage for GLB companion URL resolution, companion asset URI rewriting, missing vertex color fallback detection, and WebGL texture color baking
+- Added regression coverage for GLB companion URL resolution, companion asset URI rewriting, and missing vertex color fallback detection
 
 ## [0.4.0.2] - 2026-05-04
 
