@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.4.0.3] - 2026-05-04
+
+### Changed
+
+- Documentation dependency snippets updated to version 0.4.0.3
+- The hydration bundle was rebuilt with the GLB companion fidelity fallback
+
+### Fixed
+
+- Direct GLB hydration now detects same-name expanded glTF companions that contain missing `COLOR_0` vertex colors and uses them only when they restore authored material fidelity
+- Companion glTF buffer and image URIs are rewritten against the companion model path so fallback loading fetches the correct `.bin` and texture assets
+- Direct GLB hydration now preserves companion glTF material and texture fidelity when projects provide expanded asset folders alongside binary models
+
+### Tests
+
+- Added regression coverage for GLB companion URL resolution, companion asset URI rewriting, and missing vertex color fallback detection
+
 ## [0.4.0.2] - 2026-05-04
 
 ### Changed

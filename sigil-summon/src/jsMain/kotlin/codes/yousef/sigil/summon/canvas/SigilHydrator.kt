@@ -123,10 +123,26 @@ private class SigilRelativeAssetResolver(
     private suspend fun loadModelDocument(basePath: String?): ByteArray {
         if (!SigilGltfMetadata.isGlbUrl(modelUrl)) return delegate.load(modelUrl, basePath)
 
-        val json = transformedGlbJson ?: SigilGltfMetadata
-            .glbToGltfJson(delegate.load(modelUrl, basePath))
+        val json = transformedGlbJson ?: loadGlbDocumentWithCompanionFallback(basePath)
             .also { transformedGlbJson = it }
         return json.encodeToByteArray()
+    }
+
+    private suspend fun loadGlbDocumentWithCompanionFallback(basePath: String?): String {
+        val glbJson = SigilGltfMetadata.glbToGltfJson(delegate.load(modelUrl, basePath))
+        val companionUrl = SigilGltfMetadata.companionGltfUrlForGlb(modelUrl) ?: return glbJson
+        val companionJson = try {
+            delegate.load(companionUrl, null).decodeToString()
+        } catch (_: Throwable) {
+            return glbJson
+        }
+
+        return if (SigilGltfMetadata.shouldPreferCompanionGltf(glbJson, companionJson)) {
+            console.log("Sigil: Using expanded glTF companion for GLB fidelity: $companionUrl")
+            SigilGltfMetadata.rewriteRelativeAssetUris(companionJson, companionUrl)
+        } else {
+            glbJson
+        }
     }
 }
 

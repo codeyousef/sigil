@@ -37,6 +37,34 @@ class SigilGltfMetadataTest {
     }
 
     @Test
+    fun companionGltfUrlForGlb_resolvesSameNameExpandedAssetFolder() {
+        assertEquals(
+            "/static/models/warehouse/warehouse.gltf",
+            SigilGltfMetadata.companionGltfUrlForGlb("/static/models/warehouse.glb?v=1")
+        )
+    }
+
+    @Test
+    fun rewriteRelativeAssetUris_rewritesBuffersAndImagesAgainstCompanionGltf() {
+        val rewritten = SigilGltfMetadata.rewriteRelativeAssetUris(
+            """
+            {
+              "buffers": [{ "uri": "warehouse.bin", "byteLength": 8 }],
+              "images": [
+                { "uri": "baseColor.jpg", "mimeType": "image/jpeg" },
+                { "uri": "data:image/png;base64,AAAA" }
+              ]
+            }
+            """.trimIndent(),
+            "/static/models/warehouse/warehouse.gltf"
+        )
+
+        assertTrue(rewritten.contains("\"uri\":\"/static/models/warehouse/warehouse.bin\""))
+        assertTrue(rewritten.contains("\"uri\":\"/static/models/warehouse/baseColor.jpg\""))
+        assertTrue(rewritten.contains("\"uri\":\"data:image/png;base64,AAAA\""))
+    }
+
+    @Test
     fun extractBaseColorTextures_readsMaterialTextureAndFactor() {
         val metadata = SigilGltfMetadata.extractBaseColorTextures(
             """
@@ -100,6 +128,34 @@ class SigilGltfMetadataTest {
     @Test
     fun isGlbUrl_ignoresQueryAndHash() {
         assertTrue(SigilGltfMetadata.isGlbUrl("/models/package.glb?v=1#mesh"))
+    }
+
+    @Test
+    fun shouldPreferCompanionGltf_whenCompanionAddsMissingVertexColors() {
+        val glbJson = """
+            {
+              "meshes": [
+                {
+                  "primitives": [
+                    { "attributes": { "POSITION": 0, "TEXCOORD_0": 1 }, "material": 0 }
+                  ]
+                }
+              ]
+            }
+        """.trimIndent()
+        val companionJson = """
+            {
+              "meshes": [
+                {
+                  "primitives": [
+                    { "attributes": { "POSITION": 0, "TEXCOORD_0": 1, "COLOR_0": 2 }, "material": 0 }
+                  ]
+                }
+              ]
+            }
+        """.trimIndent()
+
+        assertTrue(SigilGltfMetadata.shouldPreferCompanionGltf(glbJson, companionJson))
     }
 
     @Test
