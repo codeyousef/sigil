@@ -139,26 +139,9 @@ private class SigilRelativeAssetResolver(
     private suspend fun loadModelDocument(basePath: String?): ByteArray {
         if (!SigilGltfMetadata.isGlbUrl(modelUrl)) return loadDelegateWithRetry(modelUrl, basePath)
 
-        val json = transformedGlbJson ?: loadGlbDocumentWithCompanionFallback(basePath)
+        val json = transformedGlbJson ?: SigilGltfMetadata.glbToGltfJson(loadDelegateWithRetry(modelUrl, basePath))
             .also { transformedGlbJson = it }
         return json.encodeToByteArray()
-    }
-
-    private suspend fun loadGlbDocumentWithCompanionFallback(basePath: String?): String {
-        val glbJson = SigilGltfMetadata.glbToGltfJson(loadDelegateWithRetry(modelUrl, basePath))
-        val companionUrl = SigilGltfMetadata.companionGltfUrlForGlb(modelUrl) ?: return glbJson
-        val companionJson = try {
-            loadDelegateWithRetry(companionUrl, null).decodeToString()
-        } catch (_: Throwable) {
-            return glbJson
-        }
-
-        return if (SigilGltfMetadata.shouldPreferCompanionGltf(glbJson, companionJson)) {
-            console.log("Sigil: Using expanded glTF companion for GLB fidelity: $companionUrl")
-            SigilGltfMetadata.rewriteRelativeAssetUris(companionJson, companionUrl)
-        } else {
-            glbJson
-        }
     }
 
     private suspend fun loadDelegateWithRetry(uri: String, basePath: String?): ByteArray {
@@ -231,6 +214,7 @@ class SigilHydrator(
                 registerNode(nodeData, materiaNode)
             }
         }
+        materiaScene.updateMatrixWorld(true)
 
         val initialized = initializeRenderer(RendererConfig())
 
@@ -404,8 +388,7 @@ class SigilHydrator(
             orbitControls?.update(deltaSeconds)
             firstPersonControls?.update(deltaSeconds)
             updateSceneAnimations(now)
-            
-            materiaScene.updateMatrixWorld(true)
+
             val r = renderer ?: return
             cam.updateMatrixWorld()
             cam.updateProjectionMatrix()
@@ -655,7 +638,7 @@ class SigilHydrator(
             val mesh = node as? Mesh ?: return@traverse
             mesh.castShadow = data.castShadow
             mesh.receiveShadow = data.receiveShadow
-            preserveGltfGeometryAttributes(mesh)
+            SigilTextureFidelity.configureGltfGeometryAttributes(mesh)
             SigilTextureFidelity.configureMaterial(mesh.material)
             applyMaterialOverrides(mesh, data.materialOverrides)
         }
@@ -745,7 +728,9 @@ class SigilHydrator(
     fun applyPatch(patch: ScenePatch) {
         for (nodePatch in patch.nodes) {
             val node = findPatchTarget(nodePatch) ?: continue
-            applyNodePatch(node, nodePatch)
+            if (applyNodePatch(node, nodePatch)) {
+                refreshNodeWorldMatrix(node)
+            }
             val nodeId = node.userData["sigilNodeId"] as? String
             val nodeData = nodeId?.let { nodeDataMap[it] }
             if (nodePatch.animations.isNotEmpty()) {
@@ -754,7 +739,6 @@ class SigilHydrator(
                 scheduleAnimations(node, nodeData.animations, AnimationTrigger.PATCH)
             }
         }
-        materiaScene.updateMatrixWorld(true)
     }
 
     private fun findPatchTarget(patch: SceneNodePatch): Object3D? {
@@ -767,14 +751,25 @@ class SigilHydrator(
         return null
     }
 
-    private fun applyNodePatch(node: Object3D, patch: SceneNodePatch) {
-        patch.position?.takeIf { it.size >= 3 }?.let { node.position.set(it[0], it[1], it[2]) }
-        patch.rotation?.takeIf { it.size >= 3 }?.let { node.rotation.set(it[0], it[1], it[2]) }
-        patch.scale?.takeIf { it.size >= 3 }?.let { node.scale.set(it[0], it[1], it[2]) }
+    private fun applyNodePatch(node: Object3D, patch: SceneNodePatch): Boolean {
+        var transformChanged = false
+        patch.position?.takeIf { it.size >= 3 }?.let {
+            node.position.set(it[0], it[1], it[2])
+            transformChanged = true
+        }
+        patch.rotation?.takeIf { it.size >= 3 }?.let {
+            node.rotation.set(it[0], it[1], it[2])
+            transformChanged = true
+        }
+        patch.scale?.takeIf { it.size >= 3 }?.let {
+            node.scale.set(it[0], it[1], it[2])
+            transformChanged = true
+        }
         patch.visible?.let { node.visible = it }
         patch.name?.let { node.name = it }
         patch.label?.let { node.userData["sigilLabel"] = it }
         patch.highlight?.let { applyHighlightPatch(node, it) }
+        return transformChanged
     }
 
     private fun applyHighlightPatch(node: Object3D, patch: HighlightPatch) {
@@ -868,30 +863,6 @@ class SigilHydrator(
                 material.transparent = alpha < 1f
                 material.opacity = alpha
                 material.needsUpdate = true
-            }
-        }
-    }
-
-    private fun preserveGltfGeometryAttributes(mesh: Mesh) {
-        val geometry = mesh.geometry
-        if (geometry.hasAttribute("TEXCOORD_0") && !geometry.hasAttribute("uv")) {
-            geometry.getAttribute("TEXCOORD_0")?.let { geometry.setAttribute("uv", it) }
-        }
-        if (geometry.hasAttribute("COLOR_0") && !geometry.hasAttribute("color")) {
-            geometry.getAttribute("COLOR_0")?.let { geometry.setAttribute("color", it) }
-        }
-
-        val hasVertexColors = geometry.hasAttribute("color") || geometry.hasAttribute("COLOR_0")
-        if (hasVertexColors) {
-            when (val material = mesh.material) {
-                is MeshStandardMaterial -> {
-                    material.vertexColors = true
-                    material.needsUpdate = true
-                }
-                is BaseMaterial -> {
-                    material.vertexColors = true
-                    material.needsUpdate = true
-                }
             }
         }
     }
@@ -1115,7 +1086,6 @@ class SigilHydrator(
     private fun rayForEvent(event: MouseEvent): Ray? {
         val cam = camera ?: return null
         val pointer = normalizedPointer(event)
-        materiaScene.updateMatrixWorld(true)
         return SigilInteractionPicker.rayFromCamera(pointer, cam)
     }
 
@@ -1218,6 +1188,11 @@ class SigilHydrator(
         val ray = rayForEvent(event) ?: return
         val position = SigilDragController.positionFor(drag.constraint, ray) ?: return
         drag.source.position.set(position.x, position.y, position.z)
+        refreshNodeWorldMatrix(drag.source)
+    }
+
+    private fun refreshNodeWorldMatrix(node: Object3D) {
+        node.updateWorldMatrix(updateParents = true, updateChildren = true)
     }
 
     private fun dropStateFor(evaluation: DropEvaluation): String =
@@ -1617,6 +1592,7 @@ class SigilHydrator(
     private fun applySceneAnimationFrame(active: ActiveSceneAnimation, eased: Float, progress: Float) {
         val node = active.node
         val data = active.data
+        var transformChanged = false
         when (data.kind) {
             AnimationKind.SLIDE -> {
                 val vector = data.vector ?: listOf(0f, 0.25f, 0f)
@@ -1625,10 +1601,12 @@ class SigilHydrator(
                     active.basePosition[1] + vector.getOrElse(1) { 0f } * eased * data.intensity,
                     active.basePosition[2] + vector.getOrElse(2) { 0f } * eased * data.intensity
                 )
+                transformChanged = true
             }
             AnimationKind.BOB -> {
                 val height = (data.vector?.getOrNull(1) ?: 0.2f) * data.intensity
                 node.position.y = active.basePosition[1] + sin(progress * PI.toFloat() * 2f) * height
+                transformChanged = true
             }
             AnimationKind.THUNK,
             AnimationKind.BOUNCE,
@@ -1639,12 +1617,14 @@ class SigilHydrator(
                     active.baseScale[1] * pulse,
                     active.baseScale[2] * pulse
                 )
+                transformChanged = true
             }
             AnimationKind.SHAKE,
             AnimationKind.GLITCH -> {
                 val amount = 0.05f * data.intensity * (1f - progress)
                 node.position.x = active.basePosition[0] + sin(progress * PI.toFloat() * 18f) * amount
                 node.position.y = active.basePosition[1] + sin(progress * PI.toFloat() * 23f) * amount
+                transformChanged = true
             }
             AnimationKind.TINT,
             AnimationKind.SUCCESS,
@@ -1660,6 +1640,9 @@ class SigilHydrator(
                 node.visible = eased >= 0.5f
             }
         }
+        if (transformChanged) {
+            refreshNodeWorldMatrix(node)
+        }
     }
 
     private fun finishSceneAnimation(active: ActiveSceneAnimation) {
@@ -1672,6 +1655,7 @@ class SigilHydrator(
             AnimationKind.GLITCH -> {
                 active.node.position.set(active.basePosition[0], active.basePosition[1], active.basePosition[2])
                 active.node.scale.set(active.baseScale[0], active.baseScale[1], active.baseScale[2])
+                refreshNodeWorldMatrix(active.node)
             }
             AnimationKind.TINT,
             AnimationKind.SUCCESS,

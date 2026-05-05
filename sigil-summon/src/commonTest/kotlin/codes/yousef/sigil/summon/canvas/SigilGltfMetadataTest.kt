@@ -2,6 +2,7 @@ package codes.yousef.sigil.summon.canvas
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class SigilGltfMetadataTest {
@@ -131,7 +132,7 @@ class SigilGltfMetadataTest {
     }
 
     @Test
-    fun shouldPreferCompanionGltf_whenCompanionAddsMissingVertexColors() {
+    fun shouldPreferCompanionGltf_doesNotPreferCompanionWhenItOnlyAddsVertexColors() {
         val glbJson = """
             {
               "meshes": [
@@ -150,6 +151,42 @@ class SigilGltfMetadataTest {
                   "primitives": [
                     { "attributes": { "POSITION": 0, "TEXCOORD_0": 1, "COLOR_0": 2 }, "material": 0 }
                   ]
+                }
+              ]
+            }
+        """.trimIndent()
+
+        assertFalse(SigilGltfMetadata.shouldPreferCompanionGltf(glbJson, companionJson))
+    }
+
+    @Test
+    fun shouldPreferCompanionGltf_whenCompanionAddsMissingTextureMetadata() {
+        val glbJson = """
+            {
+              "meshes": [
+                {
+                  "primitives": [
+                    { "attributes": { "POSITION": 0, "TEXCOORD_0": 1 }, "material": 0 }
+                  ]
+                }
+              ],
+              "materials": [{}]
+            }
+        """.trimIndent()
+        val companionJson = """
+            {
+              "meshes": [
+                {
+                  "primitives": [
+                    { "attributes": { "POSITION": 0, "TEXCOORD_0": 1 }, "material": 0 }
+                  ]
+                }
+              ],
+              "materials": [
+                {
+                  "pbrMetallicRoughness": {
+                    "baseColorTexture": { "index": 0 }
+                  }
                 }
               ]
             }
