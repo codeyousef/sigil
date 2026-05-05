@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.4.1.0] - 2026-05-05
+
+### Added
+
+- Drag gesture tracking for hydrated scene interactions so draggable nodes only enter drag/drop after pointer movement crosses a small threshold
+
+### Changed
+
+- Completed scene drag/drop gestures now suppress the following browser click event by default, preventing stale source-node click callbacks from firing after `drop` and `dragend`
+- Simple clicks and taps on draggable nodes still dispatch normal scene `click` events when the drag threshold is not crossed
+- The hydration bundle was rebuilt with drag-after-click suppression support
+
+### Tests
+
+- Added JS regression coverage for drag threshold detection, simple-click preservation, and one-shot trailing click suppression after completed drags
+- Verified the drag/click runtime fix across JVM, JS node, browser, and packaged hydration bundle tasks
+
 ## [0.4.0.9] - 2026-05-04
 
 ### Added

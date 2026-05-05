@@ -112,6 +112,13 @@ private data class ActiveDrag(
     var dropResult: String? = null
 )
 
+private data class PendingDrag(
+    val source: Object3D,
+    val sourceInteraction: InteractionMetadata,
+    val constraint: SigilDragSession,
+    val startIntersection: Intersection?
+)
+
 private data class DropEvaluation(
     val accepted: Boolean,
     val result: String
@@ -193,6 +200,8 @@ class SigilHydrator(
     private var controlsCleanup: (() -> Unit)? = null
     private var interactionCleanup: (() -> Unit)? = null
     private val raycaster = Raycaster()
+    private val dragGesture = SigilDragGestureTracker()
+    private var pendingDrag: PendingDrag? = null
     private var activeDrag: ActiveDrag? = null
     private var hoverDropTarget: Object3D? = null
     private val activeAnimations = mutableListOf<ActiveSceneAnimation>()
@@ -463,7 +472,9 @@ class SigilHydrator(
         interactionNodeMap.clear()
         nodeDataMap.clear()
         activeAnimations.clear()
+        pendingDrag = null
         activeDrag = null
+        dragGesture.reset()
         renderer?.dispose()
         renderer = null
     }
@@ -940,6 +951,8 @@ class SigilHydrator(
 
         val mouseDown: (Event) -> Unit = mouseDown@{ event ->
             val mouseEvent = event as? MouseEvent ?: return@mouseDown
+            dragGesture.beginPointer(pointerPosition(mouseEvent))
+            pendingDrag = null
             val hit = pickInteractionHit(mouseEvent) ?: return@mouseDown
             val node = hit.node
             val interaction = interactionForNode(node) ?: return@mouseDown
@@ -949,45 +962,41 @@ class SigilHydrator(
             val drag = interaction.drag
             if (drag?.enabled == true) {
                 val constraint = beginDrag(mouseEvent, node, interaction, hit.intersection.point) ?: return@mouseDown
-                updateHoverDropTarget(null)
-                activeDrag = ActiveDrag(
+                pendingDrag = PendingDrag(
                     source = node,
                     sourceInteraction = interaction,
-                    constraint = constraint
+                    constraint = constraint,
+                    startIntersection = hit.intersection
                 )
-                setCanvasCursor(CursorHint.GRABBING)
-                dispatchSceneEvent("dragstart", mouseEvent, node, hit.intersection, activeDrag)
             }
         }
 
         val mouseMove: (Event) -> Unit = mouseMove@{ event ->
             val mouseEvent = event as? MouseEvent ?: return@mouseMove
+            pendingDrag?.let { pending ->
+                suppressControlGesture(mouseEvent)
+                if (!dragGesture.movedBeyondThreshold(pointerPosition(mouseEvent))) {
+                    return@mouseMove
+                }
+
+                val drag = ActiveDrag(
+                    source = pending.source,
+                    sourceInteraction = pending.sourceInteraction,
+                    constraint = pending.constraint
+                )
+                pendingDrag = null
+                activeDrag = drag
+                updateHoverDropTarget(null)
+                setCanvasCursor(CursorHint.GRABBING)
+                dispatchSceneEvent("dragstart", mouseEvent, pending.source, pending.startIntersection, drag)
+                updateActiveDrag(drag, mouseEvent)
+                return@mouseMove
+            }
+
             val drag = activeDrag
             if (drag != null) {
                 suppressControlGesture(mouseEvent)
-                updateDragPosition(drag, mouseEvent)
-                val (target, evaluation) = pickDropTarget(mouseEvent, drag)
-                val targetState = evaluation?.let { dropStateFor(it) }
-                if (target != drag.target) {
-                    drag.target?.let { oldTarget ->
-                        setDropTargetState(oldTarget, null)
-                        dispatchSceneEvent("dragleave", mouseEvent, oldTarget, null, drag)
-                    }
-                    drag.target = target
-                    drag.targetState = targetState
-                    drag.targetAccepted = evaluation?.accepted
-                    drag.dropResult = evaluation?.result
-                    target?.let { newTarget ->
-                        setDropTargetState(newTarget, targetState)
-                        dispatchSceneEvent("dragenter", mouseEvent, newTarget, null, drag)
-                    }
-                } else {
-                    drag.targetState = targetState
-                    drag.targetAccepted = evaluation?.accepted
-                    drag.dropResult = evaluation?.result
-                    target?.let { setDropTargetState(it, targetState) }
-                }
-                dispatchSceneEvent("drag", mouseEvent, drag.source, null, drag)
+                updateActiveDrag(drag, mouseEvent)
                 return@mouseMove
             }
 
@@ -1017,8 +1026,14 @@ class SigilHydrator(
                 }
                 dispatchSceneEvent("dragend", mouseEvent, drag.source, null, drag)
                 activeDrag = null
+                dragGesture.completeDrag()
                 setCanvasCursor(CursorHint.AUTO)
                 return@mouseUp
+            }
+
+            pendingDrag?.let {
+                pendingDrag = null
+                dragGesture.endWithoutDrag()
             }
 
             val hit = pickInteractive(mouseEvent)
@@ -1029,6 +1044,11 @@ class SigilHydrator(
 
         val click: (Event) -> Unit = click@{ event ->
             val mouseEvent = event as? MouseEvent ?: return@click
+            if (dragGesture.consumeClickSuppression()) {
+                suppressControlGesture(mouseEvent)
+                return@click
+            }
+
             val hit = pickInteractive(mouseEvent)
             hit.second?.let { node ->
                 suppressControlGesture(mouseEvent)
@@ -1044,7 +1064,9 @@ class SigilHydrator(
         return {
             updateHoverDropTarget(null)
             activeDrag?.target?.let { setDropTargetState(it, null) }
+            pendingDrag = null
             activeDrag = null
+            dragGesture.reset()
             canvas.removeEventListener("mousedown", mouseDown, true)
             canvas.removeEventListener("mousemove", mouseMove, true)
             canvas.removeEventListener("mouseup", mouseUp, true)
@@ -1052,6 +1074,9 @@ class SigilHydrator(
             canvas.style.setProperty("cursor", "auto")
         }
     }
+
+    private fun pointerPosition(event: MouseEvent): SigilPointerPosition =
+        SigilPointerPosition(event.clientX.toFloat(), event.clientY.toFloat())
 
     private fun suppressControlGesture(event: MouseEvent) {
         event.preventDefault()
@@ -1085,6 +1110,32 @@ class SigilHydrator(
         } ?: return Pair(null, null)
 
         return Pair(hit.node, evaluateDrop(drag, hit.node))
+    }
+
+    private fun updateActiveDrag(drag: ActiveDrag, mouseEvent: MouseEvent) {
+        updateDragPosition(drag, mouseEvent)
+        val (target, evaluation) = pickDropTarget(mouseEvent, drag)
+        val targetState = evaluation?.let { dropStateFor(it) }
+        if (target != drag.target) {
+            drag.target?.let { oldTarget ->
+                setDropTargetState(oldTarget, null)
+                dispatchSceneEvent("dragleave", mouseEvent, oldTarget, null, drag)
+            }
+            drag.target = target
+            drag.targetState = targetState
+            drag.targetAccepted = evaluation?.accepted
+            drag.dropResult = evaluation?.result
+            target?.let { newTarget ->
+                setDropTargetState(newTarget, targetState)
+                dispatchSceneEvent("dragenter", mouseEvent, newTarget, null, drag)
+            }
+        } else {
+            drag.targetState = targetState
+            drag.targetAccepted = evaluation?.accepted
+            drag.dropResult = evaluation?.result
+            target?.let { setDropTargetState(it, targetState) }
+        }
+        dispatchSceneEvent("drag", mouseEvent, drag.source, null, drag)
     }
 
     private fun pickInteractionHit(
