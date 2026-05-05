@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.4.1.5] - 2026-05-05
+
+### Changed
+
+- Updated the Materia dependency to `0.4.0.3` so Sigil builds against the WebGPU standard-material fallback texture fix.
+
+### Tests
+
+- Verified the Materia dependency update across JS, JVM, and local Maven publication tasks.
+
 ## [0.4.1.4] - 2026-05-05
 
 ### Fixed
