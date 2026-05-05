@@ -48,4 +48,22 @@ class SigilRendererPolicyTest {
             )
         )
     }
+
+    @Test
+    fun isSoftwareWebGpuAdapter_detectsSwiftShader() {
+        assertTrue(
+            SigilRendererPolicy.isSoftwareWebGpuAdapter(
+                "Backend=WEBGPU, Device='0xc0de', Vendor=google, Architecture=swiftshader"
+            )
+        )
+    }
+
+    @Test
+    fun isSoftwareWebGpuAdapter_allowsHardwareAdapter() {
+        assertFalse(
+            SigilRendererPolicy.isSoftwareWebGpuAdapter(
+                "Backend=WEBGPU, Vendor=amd, Architecture=rdna3"
+            )
+        )
+    }
 }

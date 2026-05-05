@@ -76,6 +76,7 @@ import io.materia.texture.Texture
 import io.materia.texture.Texture2D
 import kotlinx.browser.document
 import kotlinx.browser.window
+import kotlinx.coroutines.await
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.MainScope
 import kotlinx.coroutines.launch
@@ -243,13 +244,14 @@ class SigilHydrator(
     }
 
     private suspend fun initializeRenderer(config: RendererConfig): Boolean {
+        val rendererOverride = rendererOverride()
         val preferWebGl = SigilRendererPolicy.preferWebGlFirst(
             userAgent = window.navigator.userAgent,
             webdriver = (window.navigator.asDynamic().webdriver as? Boolean) == true,
-            rendererOverride = rendererOverride()
+            rendererOverride = rendererOverride
         )
 
-        if (preferWebGl) {
+        if (preferWebGl || shouldAvoidSoftwareWebGpu(rendererOverride)) {
             console.log("Sigil: Preferring WebGL renderer for this browser environment")
             if (initializeWebGlRenderer(config, fallback = false)) return true
             return initializeWebGpuRenderer(config)
@@ -265,6 +267,37 @@ class SigilHydrator(
         }
         return initializeWebGlRenderer(config, fallback = true)
     }
+
+    private suspend fun shouldAvoidSoftwareWebGpu(rendererOverride: String?): Boolean {
+        when (rendererOverride?.trim()?.lowercase()) {
+            "webgpu", "gpu" -> return false
+            "webgl", "webgl2" -> return true
+        }
+
+        val gpu = window.navigator.asDynamic().gpu ?: return false
+        return try {
+            val adapterPromise = gpu.requestAdapter().unsafeCast<kotlin.js.Promise<dynamic>>()
+            val adapter = adapterPromise.await() ?: return false
+            val info = adapter.info
+            val summary = listOf(
+                dynamicText(adapter.name),
+                dynamicText(info?.vendor),
+                dynamicText(info?.architecture),
+                dynamicText(info?.device),
+                dynamicText(info?.description)
+            ).filter { it.isNotBlank() }.joinToString(" ")
+            val isSoftware = SigilRendererPolicy.isSoftwareWebGpuAdapter(summary)
+            if (isSoftware) {
+                console.warn("Sigil: WebGPU adapter appears to be software-backed ($summary); preferring WebGL")
+            }
+            isSoftware
+        } catch (_: Throwable) {
+            false
+        }
+    }
+
+    private fun dynamicText(value: dynamic): String =
+        if (value == null || value == undefined) "" else value.toString()
 
     private suspend fun initializeWebGpuRenderer(config: RendererConfig): Boolean {
         try {
