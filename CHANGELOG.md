@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.4.1.2] - 2026-05-05
+
+### Changed
+
+- Updated the Materia dependency to `0.4.0.1` so Sigil's WebGL fallback bundle includes native baseColor texture-map sampling
+- The hydration bundle was rebuilt with Materia's WebGL texture-map support and texture cache updates
+
+### Tests
+
+- Verified the Materia dependency update across JVM, JS node, browser, and packaged hydration bundle tasks with refreshed dependencies
+
 ## [0.4.1.1] - 2026-05-05
 
 ### Changed
