@@ -74,12 +74,18 @@ internal object SigilGltfMetadata {
     }
 
     fun shouldPreferCompanionGltf(glbJson: String, companionGltfJson: String): Boolean {
-        val glbPrimitives = primitiveAttributes(glbJson)
-        val companionPrimitives = primitiveAttributes(companionGltfJson)
+        val glbRoot = Json.parseToJsonElement(glbJson).jsonObject
+        val companionRoot = Json.parseToJsonElement(companionGltfJson).jsonObject
+        val glbPrimitives = primitiveAttributes(glbRoot)
+        val companionPrimitives = primitiveAttributes(companionRoot)
         if (glbPrimitives.isEmpty() || glbPrimitives.size != companionPrimitives.size) return false
 
+        val glbTextureCount = baseColorTextureMaterialCount(glbRoot)
+        val companionTextureCount = baseColorTextureMaterialCount(companionRoot)
+        if (companionTextureCount > glbTextureCount) return true
+
         return companionPrimitives.zip(glbPrimitives).any { (companion, glb) ->
-            "COLOR_0" in companion && "COLOR_0" !in glb
+            "TEXCOORD_0" in companion && "TEXCOORD_0" !in glb && companionTextureCount >= glbTextureCount
         }
     }
 
@@ -149,6 +155,10 @@ internal object SigilGltfMetadata {
 
     private fun primitiveAttributes(gltfJson: String): List<Set<String>> {
         val root = Json.parseToJsonElement(gltfJson).jsonObject
+        return primitiveAttributes(root)
+    }
+
+    private fun primitiveAttributes(root: JsonObject): List<Set<String>> {
         return root.arrayOrEmpty("meshes").flatMap { mesh ->
             val meshObject = mesh as? JsonObject ?: return@flatMap emptyList()
             meshObject.arrayOrEmpty("primitives").map { primitive ->
@@ -158,6 +168,13 @@ internal object SigilGltfMetadata {
             }
         }
     }
+
+    private fun baseColorTextureMaterialCount(root: JsonObject): Int =
+        root.arrayOrEmpty("materials").count { material ->
+            val materialObject = material as? JsonObject ?: return@count false
+            val pbr = materialObject["pbrMetallicRoughness"] as? JsonObject ?: return@count false
+            pbr["baseColorTexture"] is JsonObject
+        }
 
     private fun rewriteUriArray(value: JsonElement, modelUrl: String): JsonArray {
         val array = value as? JsonArray ?: return JsonArray(emptyList())
