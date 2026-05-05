@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.4.1.5] - 2026-05-05
+
+### Changed
+
+- Updated the Materia dependency to `0.4.0.3` so Sigil builds against the WebGPU standard-material fallback texture fix.
+
+### Tests
+
+- Verified the Materia dependency update across JS, JVM, and local Maven publication tasks.
+
 ## [0.4.1.4] - 2026-05-05
 
 ### Fixed
@@ -7,10 +17,12 @@
 - GLB loading now keeps the authored binary asset as the runtime source of truth instead of swapping to companion glTF files that can alter material fidelity.
 - GLTF `COLOR_0` attributes no longer multiply over textured `MeshStandardMaterial` and `MeshBasicMaterial` meshes, preserving authored package/truck base-color textures.
 - Drag/drop interaction picking no longer forces a whole-scene matrix update on every pointer event; transformed nodes refresh their own world matrices when patched, dragged, or animated.
+- Software WebGPU adapters such as SwiftShader are now avoided by default in favor of WebGL unless `?sigilRenderer=webgpu` explicitly forces WebGPU.
 
 ### Tests
 
 - Added metadata and texture-fidelity regression coverage for GLB companion selection and textured `COLOR_0` meshes.
+- Added renderer-policy coverage for detecting software WebGPU adapters.
 - Verified the hydration bundle with local Fifth Wall browser smoke screenshots and a successful package drag/drop route.
 
 ## [0.4.1.2] - 2026-05-05

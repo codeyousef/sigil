@@ -16,4 +16,12 @@ internal object SigilRendererPolicy {
             normalizedUserAgent.contains("headlesschrome") ||
             normalizedUserAgent.contains("swiftshader")
     }
+
+    fun isSoftwareWebGpuAdapter(adapterSummary: String?): Boolean {
+        val normalized = adapterSummary.orEmpty().lowercase()
+        return normalized.contains("swiftshader") ||
+            normalized.contains("llvmpipe") ||
+            normalized.contains("software rasterizer") ||
+            normalized.contains("software adapter")
+    }
 }
