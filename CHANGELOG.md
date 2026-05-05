@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.4.1.1] - 2026-05-05
+
+### Changed
+
+- WebGL rendering now preserves standard GLTF baseColor texture maps instead of reducing texture detail to baked per-vertex colors
+- Texture fidelity configuration for model materials now keeps mipmaps, linear filtering, and anisotropy while leaving authored UV texture detail on the material map
+- The hydration bundle was rebuilt with the WebGL texture fidelity fix
+
+### Tests
+
+- Added JS regression coverage proving standard baseColor textures remain mapped and do not create synthetic vertex colors
+- Verified the texture fidelity fix across JVM, JS node, browser, and packaged hydration bundle tasks
+
 ## [0.4.1.0] - 2026-05-05
 
 ### Added

@@ -343,7 +343,7 @@ class SigilHydrator(
         renderer.resize(canvas.width, canvas.height)
         (renderer as? WebGPURenderer)?.clearColor = intToColor(sceneData.settings.backgroundColor)
         if (renderer is WebGLRenderer) {
-            bakeSceneTexturesForWebGl()
+            configureSceneTextureFidelity()
         }
     }
 
@@ -656,31 +656,15 @@ class SigilHydrator(
             mesh.castShadow = data.castShadow
             mesh.receiveShadow = data.receiveShadow
             preserveGltfGeometryAttributes(mesh)
-            configureMaterialTextureFidelity(mesh.material)
-            if (renderer is WebGLRenderer) {
-                bakeBaseColorTextureForWebGl(mesh)
-            }
+            SigilTextureFidelity.configureMaterial(mesh.material)
             applyMaterialOverrides(mesh, data.materialOverrides)
         }
     }
 
-    private fun bakeSceneTexturesForWebGl() {
+    private fun configureSceneTextureFidelity() {
         materiaScene.traverse { node ->
-            (node as? Mesh)?.let(::bakeBaseColorTextureForWebGl)
-        }
-    }
-
-    private fun bakeBaseColorTextureForWebGl(mesh: Mesh) {
-        if (SigilWebGlTextureBaker.bakeBaseColorTexture(mesh)) {
-            when (val material = mesh.material) {
-                is MeshStandardMaterial -> {
-                    material.vertexColors = true
-                    material.needsUpdate = true
-                }
-                is MeshBasicMaterial -> {
-                    material.needsUpdate = true
-                }
-            }
+            val mesh = node as? Mesh ?: return@traverse
+            SigilTextureFidelity.configureMaterial(mesh.material)
         }
     }
 
@@ -850,7 +834,7 @@ class SigilHydrator(
                 continue
             }
 
-            configureTextureFidelity(texture)
+            SigilTextureFidelity.configureTexture(texture)
             applyBaseColorTexture(material, texture, textureInfo.baseColorFactor)
         }
     }
@@ -910,28 +894,6 @@ class SigilHydrator(
                 }
             }
         }
-    }
-
-    private fun configureMaterialTextureFidelity(material: Material?) {
-        when (material) {
-            is MeshStandardMaterial -> {
-                configureTextureFidelity(material.map)
-                material.needsUpdate = true
-            }
-            is MeshBasicMaterial -> {
-                configureTextureFidelity(material.map)
-                material.needsUpdate = true
-            }
-        }
-    }
-
-    private fun configureTextureFidelity(texture: Texture?) {
-        texture ?: return
-        texture.generateMipmaps = true
-        texture.magFilter = TextureFilter.LINEAR
-        texture.minFilter = TextureFilter.LINEAR_MIPMAP_LINEAR
-        texture.anisotropy = 4f
-        texture.markTextureNeedsUpdate()
     }
 
     private fun colorFromBaseColorFactor(factor: List<Float>): Color {
