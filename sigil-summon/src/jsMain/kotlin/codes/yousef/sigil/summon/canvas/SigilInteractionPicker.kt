@@ -21,6 +21,11 @@ internal data class SigilInteractionHit(
 
 internal object SigilInteractionPicker {
 
+    fun requiresMeshRaycast(interactions: List<InteractionMetadata>): Boolean =
+        interactions.any { interaction ->
+            interaction.enabled && !interaction.hasExplicitHitVolume()
+        }
+
     fun rayFromCamera(pointer: Vector2, camera: PerspectiveCamera): Ray {
         camera.updateMatrixWorld()
         camera.updateProjectionMatrix()
@@ -116,4 +121,9 @@ internal object SigilInteractionPicker {
             getOrNull(1) ?: 0f,
             getOrNull(2) ?: 0f
         )
+
+    private fun InteractionMetadata.hasExplicitHitVolume(): Boolean {
+        val hitVolume = hitVolume ?: return false
+        return hitVolume.shape != HitVolumeShape.MESH
+    }
 }

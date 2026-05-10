@@ -77,6 +77,7 @@ import io.materia.texture.Texture2D
 import kotlinx.browser.document
 import kotlinx.browser.window
 import kotlinx.coroutines.await
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.MainScope
 import kotlinx.coroutines.launch
@@ -93,6 +94,10 @@ import kotlin.math.pow
 import kotlin.math.sin
 
 private val scope = MainScope()
+private const val SIGIL_GLTF_CACHE_SCOPE = "codes.yousef.sigil.gltf"
+private const val SIGIL_MODEL_DATA_KEY = "sigilModelData"
+private const val SIGIL_MODEL_LOAD_STATE_KEY = "sigilModelLoadState"
+private const val SIGIL_HIGHLIGHT_PATCH_KEY = "sigilHighlightPatch"
 
 private data class ActiveSceneAnimation(
     val node: Object3D,
@@ -129,6 +134,8 @@ private class SigilRelativeAssetResolver(
     private val modelUrl: String,
     private val delegate: AssetResolver = AssetResolver.default()
 ) : AssetResolver {
+    override val cacheKeyScope: String? = SIGIL_GLTF_CACHE_SCOPE
+
     private var transformedGlbJson: String? = null
 
     override suspend fun load(uri: String, basePath: String?): ByteArray {
@@ -189,6 +196,8 @@ class SigilHydrator(
     private var activeDrag: ActiveDrag? = null
     private var hoverDropTarget: Object3D? = null
     private val activeAnimations = mutableListOf<ActiveSceneAnimation>()
+    private val baseColorTextureMetadataCache = mutableMapOf<String, List<GltfBaseColorTexture>>()
+    private val pendingBaseColorHydrations = mutableMapOf<String, CompletableDeferred<Unit>>()
     private var lastFrameTimeMs: Double = 0.0
     private var rendererCanvasMayNeedReplacement = false
 
@@ -487,6 +496,8 @@ class SigilHydrator(
         nodeMap.clear()
         interactionNodeMap.clear()
         nodeDataMap.clear()
+        baseColorTextureMetadataCache.clear()
+        pendingBaseColorHydrations.clear()
         activeAnimations.clear()
         pendingDrag = null
         activeDrag = null
@@ -562,7 +573,18 @@ class SigilHydrator(
             scale.set(data.scale[0], data.scale[1], data.scale[2])
             visible = data.visible
             name = data.name ?: ""
+            userData[SIGIL_MODEL_DATA_KEY] = data
+            userData[SIGIL_MODEL_LOAD_STATE_KEY] = SigilModelLoadState()
         }
+
+        ensureModelHydratedForVisibility(group, data)
+
+        return group
+    }
+
+    private fun ensureModelHydratedForVisibility(group: Group, data: ModelData) {
+        val loadState = group.userData[SIGIL_MODEL_LOAD_STATE_KEY] as? SigilModelLoadState ?: return
+        if (!loadState.tryStartForVisibility(group.visible)) return
 
         scope.launch {
             try {
@@ -570,17 +592,20 @@ class SigilHydrator(
                 val asset = GLTFLoader(assetResolver).load(data.url)
                 val root = asset.scene
                 hydrateGltfBaseColorTextures(asset.materials, data.url, assetResolver)
+                SigilModelMaterialIsolation.isolateMutableMaterials(root)
                 applyModelSettings(root, data)
                 group.clear()
                 group.add(root)
+                replayDeferredVisualState(group)
             } catch (t: Throwable) {
                 console.error("Sigil: Failed to load model ${data.url}: ${t.message}")
                 group.clear()
                 group.add(createModelFallback(data))
+                replayDeferredVisualState(group)
+            } finally {
+                loadState.complete()
             }
         }
-
-        return group
     }
 
     private fun createControls(data: ControlsData) {
@@ -798,20 +823,40 @@ class SigilHydrator(
             node.scale.set(it[0], it[1], it[2])
             transformChanged = true
         }
-        patch.visible?.let { node.visible = it }
+        patch.visible?.let {
+            node.visible = it
+            if (it) {
+                ensureDeferredModelHydrated(node)
+            }
+        }
         patch.name?.let { node.name = it }
         patch.label?.let { node.userData["sigilLabel"] = it }
         patch.highlight?.let { applyHighlightPatch(node, it) }
         return transformChanged
     }
 
+    private fun ensureDeferredModelHydrated(node: Object3D) {
+        val group = node as? Group ?: return
+        val data = group.userData[SIGIL_MODEL_DATA_KEY] as? ModelData ?: return
+        ensureModelHydratedForVisibility(group, data)
+    }
+
     private fun applyHighlightPatch(node: Object3D, patch: HighlightPatch) {
         if (patch.active) {
+            node.userData[SIGIL_HIGHLIGHT_PATCH_KEY] = patch
             setNodeMaterialColor(node, intToColor(patch.color), storeOriginal = true)
             node.userData["sigilHighlightActive"] = true
         } else {
             restoreNodeMaterialColor(node)
             node.userData.remove("sigilHighlightActive")
+            node.userData.remove(SIGIL_HIGHLIGHT_PATCH_KEY)
+        }
+    }
+
+    private fun replayDeferredVisualState(node: Object3D) {
+        val patch = node.userData[SIGIL_HIGHLIGHT_PATCH_KEY] as? HighlightPatch
+        if (patch?.active == true) {
+            setNodeMaterialColor(node, intToColor(patch.color), storeOriginal = true)
         }
     }
 
@@ -824,52 +869,117 @@ class SigilHydrator(
             return
         }
 
+        pendingBaseColorHydrations[modelUrl]?.let { pending ->
+            pending.await()
+            return
+        }
+
+        val pending = CompletableDeferred<Unit>()
+        pendingBaseColorHydrations[modelUrl] = pending
+
+        try {
+            val baseColorTextures = baseColorTexturesForModel(modelUrl, assetResolver)
+            if (baseColorTextures.isEmpty()) return
+
+            val textureOptions = SigilTextureOptions(
+                generateMipmaps = true,
+                flipY = false,
+                anisotropy = 4f,
+                magFilter = TextureFilter.LINEAR,
+                minFilter = TextureFilter.LINEAR_MIPMAP_LINEAR
+            )
+
+            for (textureInfo in baseColorTextures) {
+                val material = materials.getOrNull(textureInfo.materialIndex) ?: continue
+                if (materialHasBaseColorTexture(material)) {
+                    applyBaseColorFactor(material, textureInfo.baseColorFactor)
+                    continue
+                }
+
+                val textureUri = SigilGltfMetadata.resolveAssetPath(textureInfo.uri, modelUrl = modelUrl)
+                val texture = try {
+                    SigilBrowserTextureLoader.load(
+                        uri = textureUri,
+                        mimeType = textureInfo.mimeType,
+                        assetResolver = assetResolver,
+                        options = textureOptions
+                    )
+                } catch (t: Throwable) {
+                    console.warn("Sigil: Could not load glTF baseColor texture $textureUri: ${t.message}")
+                    continue
+                }
+
+                SigilTextureFidelity.configureTexture(texture)
+                applyBaseColorTexture(material, texture, textureInfo.baseColorFactor)
+            }
+        } finally {
+            pending.complete(Unit)
+            pendingBaseColorHydrations.remove(modelUrl)
+        }
+    }
+
+    private suspend fun baseColorTexturesForModel(
+        modelUrl: String,
+        assetResolver: AssetResolver
+    ): List<GltfBaseColorTexture> {
+        baseColorTextureMetadataCache[modelUrl]?.let { return it }
+
         val gltfJson = try {
             assetResolver.load(modelUrl, null).decodeToString()
         } catch (t: Throwable) {
             console.warn("Sigil: Could not read glTF JSON metadata for $modelUrl: ${t.message}")
-            return
+            ""
         }
 
-        val baseColorTextures = try {
-            SigilGltfMetadata.extractBaseColorTextures(gltfJson)
-        } catch (t: Throwable) {
-            console.warn("Sigil: Could not parse glTF material texture metadata for $modelUrl: ${t.message}")
-            return
-        }
-        if (baseColorTextures.isEmpty()) return
-
-        val textureOptions = SigilTextureOptions(
-            generateMipmaps = true,
-            flipY = false,
-            anisotropy = 4f,
-            magFilter = TextureFilter.LINEAR,
-            minFilter = TextureFilter.LINEAR_MIPMAP_LINEAR
-        )
-
-        for (textureInfo in baseColorTextures) {
-            val material = materials.getOrNull(textureInfo.materialIndex) ?: continue
-            val textureUri = SigilGltfMetadata.resolveAssetPath(textureInfo.uri, modelUrl = modelUrl)
-            val texture = try {
-                SigilBrowserTextureLoader.load(
-                    uri = textureUri,
-                    mimeType = textureInfo.mimeType,
-                    assetResolver = assetResolver,
-                    options = textureOptions
-                )
+        val baseColorTextures = if (gltfJson.isBlank()) {
+            emptyList()
+        } else {
+            try {
+                SigilGltfMetadata.extractBaseColorTextures(gltfJson)
             } catch (t: Throwable) {
-                console.warn("Sigil: Could not load glTF baseColor texture $textureUri: ${t.message}")
-                continue
+                console.warn("Sigil: Could not parse glTF material texture metadata for $modelUrl: ${t.message}")
+                emptyList()
             }
-
-            SigilTextureFidelity.configureTexture(texture)
-            applyBaseColorTexture(material, texture, textureInfo.baseColorFactor)
         }
+
+        baseColorTextureMetadataCache[modelUrl] = baseColorTextures
+        return baseColorTextures
     }
+
+    private fun materialHasBaseColorTexture(material: Material): Boolean =
+        when (material) {
+            is MeshStandardMaterial -> material.map != null
+            is MeshBasicMaterial -> material.map != null
+            else -> false
+        }
 
     private fun applyBaseColorTexture(
         material: Material,
         texture: Texture,
+        baseColorFactor: List<Float>
+    ) {
+        applyBaseColorFactor(material, baseColorFactor)
+        val alpha = baseColorFactor.getOrNull(3) ?: 1f
+
+        when (material) {
+            is MeshStandardMaterial -> {
+                if (material.map == null) material.map = texture.unsafeCast<Texture2D>()
+                material.needsUpdate = true
+            }
+            is MeshBasicMaterial -> {
+                if (material.map == null) material.map = texture
+                material.needsUpdate = true
+            }
+            is BaseMaterial -> {
+                material.transparent = alpha < 1f
+                material.opacity = alpha
+                material.needsUpdate = true
+            }
+        }
+    }
+
+    private fun applyBaseColorFactor(
+        material: Material,
         baseColorFactor: List<Float>
     ) {
         val color = colorFromBaseColorFactor(baseColorFactor)
@@ -877,7 +987,6 @@ class SigilHydrator(
 
         when (material) {
             is MeshStandardMaterial -> {
-                if (material.map == null) material.map = texture.unsafeCast<Texture2D>()
                 material.color = color
                 if (alpha < 1f) {
                     material.transparent = true
@@ -886,7 +995,6 @@ class SigilHydrator(
                 material.needsUpdate = true
             }
             is MeshBasicMaterial -> {
-                if (material.map == null) material.map = texture
                 material.color = color
                 material.transparent = alpha < 1f
                 material.opacity = alpha
@@ -1109,11 +1217,26 @@ class SigilHydrator(
         acceptCandidate: (Object3D) -> Boolean = { true }
     ): SigilInteractionHit? {
         val ray = rayForEvent(event) ?: return null
-        val hits = hitVolumeHits(ray) + meshRaycasterHits(ray)
+        val hitVolumeHits = hitVolumeHits(ray)
+        val hits = if (shouldRunMeshRaycaster(acceptCandidate)) {
+            hitVolumeHits + meshRaycasterHits(ray)
+        } else {
+            hitVolumeHits
+        }
 
         return hits
             .sortedBy { it.intersection.distance }
             .firstOrNull { acceptCandidate(it.node) }
+    }
+
+    private fun shouldRunMeshRaycaster(acceptCandidate: (Object3D) -> Boolean): Boolean {
+        val acceptedInteractions = nodeMap.values.mapNotNull { node ->
+            if (!node.isVisibleInHierarchy()) return@mapNotNull null
+            if (!acceptCandidate(node)) return@mapNotNull null
+            interactionForNode(node)?.takeIf { it.enabled }
+        }
+
+        return SigilInteractionPicker.requiresMeshRaycast(acceptedInteractions)
     }
 
     private fun rayForEvent(event: MouseEvent): Ray? {
