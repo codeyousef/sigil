@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.4.1.6] - 2026-05-10
+
+### Changed
+
+- Updated the Materia dependency to `0.4.1.0` so Sigil can use the shared GLTF/GLB loader cache and safe cloned scene instances.
+- Hidden `SigilModel` nodes now defer browser GLTF/GLB hydration until they become visible.
+- Repeated model instances now isolate mutable material state per Sigil node while preserving shared texture resources from cached GLTF loads.
+- Hit-volume-only interaction candidates now skip recursive full-scene mesh raycasts during pointer and drag/drop picking.
+
+### Tests
+
+- Added JS regression coverage for lazy model-load state, material isolation, and hit-volume-only mesh-raycast policy.
+
 ## [0.4.1.5] - 2026-05-05
 
 ### Changed

@@ -10,6 +10,7 @@ import io.materia.core.scene.Mesh
 import io.materia.geometry.primitives.BoxGeometry
 import kotlin.math.abs
 import kotlin.test.Test
+import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertSame
@@ -102,6 +103,50 @@ class SigilInteractionPickerTest {
         )
 
         assertNull(hit)
+    }
+
+    @Test
+    fun requiresMeshRaycast_returnsFalseForHitVolumeOnlyCandidates() {
+        assertFalse(
+            SigilInteractionPicker.requiresMeshRaycast(
+                listOf(
+                    InteractionMetadata(
+                        hitVolume = HitVolumeData(shape = HitVolumeShape.BOX)
+                    ),
+                    InteractionMetadata(
+                        hitVolume = HitVolumeData(shape = HitVolumeShape.SPHERE, radius = 1f)
+                    )
+                )
+            )
+        )
+    }
+
+    @Test
+    fun requiresMeshRaycast_returnsTrueForMeshOrMissingHitVolumes() {
+        assertTrue(
+            SigilInteractionPicker.requiresMeshRaycast(
+                listOf(
+                    InteractionMetadata(
+                        hitVolume = HitVolumeData(shape = HitVolumeShape.BOX)
+                    ),
+                    InteractionMetadata(hitVolume = null)
+                )
+            )
+        )
+        assertTrue(
+            SigilInteractionPicker.requiresMeshRaycast(
+                listOf(
+                    InteractionMetadata(
+                        hitVolume = HitVolumeData(shape = HitVolumeShape.MESH)
+                    )
+                )
+            )
+        )
+    }
+
+    @Test
+    fun requiresMeshRaycast_returnsFalseWhenNoAcceptedCandidatesRemain() {
+        assertFalse(SigilInteractionPicker.requiresMeshRaycast(emptyList()))
     }
 
     private fun assertClose(expected: Float, actual: Float) {
