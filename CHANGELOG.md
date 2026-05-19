@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.4.1.7] - 2026-05-19
+
+### Fixed
+
+- Screen-space effect hydration now uses the same renderer policy as scene hydration, so Firefox and software WebGPU adapters prefer WebGL unless WebGPU is explicitly forced.
+- `SigilCanvasConfig.respectDevicePixelRatio` is now honored by the effect canvas sizing path and WebGL resize observer.
+
+### Tests
+
+- Verified the renderer policy and hydration bundle changes with JVM and JS Node tests.
+
 ## [0.4.1.6] - 2026-05-10
 
 ### Changed

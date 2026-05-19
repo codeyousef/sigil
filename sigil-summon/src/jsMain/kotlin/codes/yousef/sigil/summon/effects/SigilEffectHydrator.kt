@@ -2,9 +2,11 @@ package codes.yousef.sigil.summon.effects
 
 import codes.yousef.sigil.schema.SigilJson
 import codes.yousef.sigil.schema.effects.*
+import codes.yousef.sigil.summon.canvas.SigilRendererPolicy
 import kotlinx.browser.document
 import kotlinx.browser.window
 import kotlinx.coroutines.MainScope
+import kotlinx.coroutines.await
 import kotlinx.coroutines.launch
 import org.w3c.dom.HTMLCanvasElement
 
@@ -81,17 +83,37 @@ class SigilEffectHydrator(
      * Detect the best available renderer type based on browser capabilities
      * and effect shader availability.
      */
-    private fun detectRendererType(): RendererType {
+    private suspend fun detectRendererType(): RendererType {
         val hasWebGPU = isWebGPUAvailable()
         val hasWebGL = WebGLEffectHydrator.isWebGLAvailable()
+        val rendererOverride = rendererOverride()
+        val preferWebGL = SigilRendererPolicy.preferWebGlFirst(
+            userAgent = window.navigator.userAgent,
+            webdriver = (window.navigator.asDynamic().webdriver as? Boolean) == true,
+            rendererOverride = rendererOverride
+        )
+        val avoidWebGPU = preferWebGL || shouldAvoidSoftwareWebGpu(rendererOverride)
         
         // Check if effects have the required shaders
         val hasGLSLShaders = composerData.effects.any { it.enabled && it.glslFragmentShader != null }
         val hasWGSLShaders = composerData.effects.any { it.enabled && it.fragmentShader.isNotBlank() }
         
-        console.log("SigilEffectHydrator: WebGPU=$hasWebGPU, WebGL=$hasWebGL, WGSL=$hasWGSLShaders, GLSL=$hasGLSLShaders")
+        console.log(
+            "SigilEffectHydrator: WebGPU=$hasWebGPU, WebGL=$hasWebGL, WGSL=$hasWGSLShaders, " +
+                "GLSL=$hasGLSLShaders, avoidWebGPU=$avoidWebGPU"
+        )
         
         return when {
+            // Firefox and software adapters can expose navigator.gpu while still being unsafe.
+            avoidWebGPU && hasWebGL && hasGLSLShaders && config.fallbackToWebGL -> {
+                console.log("SigilEffectHydrator: Using WebGL by renderer policy")
+                RendererType.WEBGL
+            }
+            avoidWebGPU && config.fallbackToCSS -> {
+                console.warn("SigilEffectHydrator: WebGPU avoided by renderer policy; using CSS fallback")
+                RendererType.CSS_FALLBACK
+            }
+            avoidWebGPU -> RendererType.NONE
             // Prefer WebGPU with WGSL shaders
             hasWebGPU && hasWGSLShaders -> {
                 console.log("SigilEffectHydrator: Using WebGPU with WGSL shaders")
@@ -123,6 +145,49 @@ class SigilEffectHydrator(
         } catch (e: Exception) {
             false
         }
+    }
+
+    private suspend fun shouldAvoidSoftwareWebGpu(rendererOverride: String?): Boolean {
+        when (rendererOverride?.trim()?.lowercase()) {
+            "webgpu", "gpu" -> return false
+            "webgl", "webgl2" -> return true
+        }
+
+        val gpu = window.navigator.asDynamic().gpu ?: return false
+        return try {
+            val adapterPromise = gpu.requestAdapter().unsafeCast<kotlin.js.Promise<dynamic>>()
+            val adapter = adapterPromise.await() ?: return false
+            val info = adapter.info
+            val summary = listOf(
+                dynamicText(adapter.name),
+                dynamicText(info?.vendor),
+                dynamicText(info?.architecture),
+                dynamicText(info?.device),
+                dynamicText(info?.description)
+            ).filter { it.isNotBlank() }.joinToString(" ")
+            val isSoftware = SigilRendererPolicy.isSoftwareWebGpuAdapter(summary)
+            if (isSoftware) {
+                console.warn("SigilEffectHydrator: WebGPU adapter appears to be software-backed ($summary); using WebGL")
+            }
+            isSoftware
+        } catch (_: Throwable) {
+            false
+        }
+    }
+
+    private fun dynamicText(value: dynamic): String =
+        if (value == null || value == undefined) "" else value.toString()
+
+    private fun rendererOverride(): String? {
+        val globalOverride = window.asDynamic().__SIGIL_RENDERER__ as? String
+        if (!globalOverride.isNullOrBlank()) return globalOverride
+
+        val legacyOverride = window.asDynamic().SIGIL_RENDERER as? String
+        if (!legacyOverride.isNullOrBlank()) return legacyOverride
+
+        val params = js("new URLSearchParams(window.location.search)").unsafeCast<dynamic>()
+        return (params.get("sigilRenderer") as? String)
+            ?: (params.get("renderer") as? String)
     }
     
     /**
@@ -226,14 +291,14 @@ class SigilEffectHydrator(
      */
     private fun syncCanvasSize() {
         val rect = canvas.getBoundingClientRect()
-        val dpr = window.devicePixelRatio
-        val displayWidth = (rect.width * dpr).toInt()
-        val displayHeight = (rect.height * dpr).toInt()
+        val scale = canvasPixelScale()
+        val displayWidth = cssPixelsToCanvasPixels(rect.width, scale)
+        val displayHeight = cssPixelsToCanvasPixels(rect.height, scale)
         
         if (canvas.width != displayWidth || canvas.height != displayHeight) {
             canvas.width = displayWidth
             canvas.height = displayHeight
-            console.log("SigilEffectHydrator: Synced canvas size to ${displayWidth}x${displayHeight} (DPR: $dpr)")
+            console.log("SigilEffectHydrator: Synced canvas size to ${displayWidth}x${displayHeight} (scale: $scale)")
         }
     }
     
@@ -242,9 +307,9 @@ class SigilEffectHydrator(
      */
     fun resize(width: Int, height: Int) {
         // Update canvas buffer size
-        val dpr = window.devicePixelRatio
-        val bufferWidth = (width * dpr).toInt()
-        val bufferHeight = (height * dpr).toInt()
+        val scale = canvasPixelScale()
+        val bufferWidth = cssPixelsToCanvasPixels(width.toDouble(), scale)
+        val bufferHeight = cssPixelsToCanvasPixels(height.toDouble(), scale)
         canvas.width = bufferWidth
         canvas.height = bufferHeight
         
@@ -254,6 +319,12 @@ class SigilEffectHydrator(
             RendererType.CSS_FALLBACK, RendererType.NONE -> {}
         }
     }
+
+    private fun canvasPixelScale(): Double =
+        if (config.respectDevicePixelRatio) window.devicePixelRatio else 1.0
+
+    private fun cssPixelsToCanvasPixels(cssPixels: Double, scale: Double): Int =
+        (cssPixels * scale).toInt().coerceAtLeast(1)
     
     /**
      * Setup resize observer for this hydrator.
@@ -474,7 +545,19 @@ object SigilEffectHydratorJs {
      */
     @JsName("getAvailableRenderer")
     fun getAvailableRenderer(): String {
+        val rendererOverride = js(
+            "window.__SIGIL_RENDERER__ || window.SIGIL_RENDERER || " +
+                "new URLSearchParams(window.location.search).get('sigilRenderer') || " +
+                "new URLSearchParams(window.location.search).get('renderer')"
+        ) as? String
+        val preferWebGL = SigilRendererPolicy.preferWebGlFirst(
+            userAgent = js("navigator.userAgent") as? String,
+            webdriver = (js("navigator.webdriver") as? Boolean) == true,
+            rendererOverride = rendererOverride
+        )
+
         return when {
+            preferWebGL && isWebGLAvailable() -> "webgl"
             isWebGPUAvailable() -> "webgpu"
             isWebGLAvailable() -> "webgl"
             else -> "css"

@@ -6,6 +6,7 @@ import io.materia.renderer.webgl.WebGLEffectPass
 import io.materia.renderer.webgl.WebGLEffectComposer
 import io.materia.effects.BlendMode as MateriaBlendMode
 import kotlinx.browser.document
+import kotlinx.browser.window
 import kotlinx.coroutines.MainScope
 import kotlinx.coroutines.launch
 import org.w3c.dom.HTMLCanvasElement
@@ -82,7 +83,7 @@ class WebGLEffectHydrator(
                 interactionHandler.setupMouseListeners()
             }
             interactionHandler.setupResizeObserver(canvas) { width, height ->
-                resize(width.toInt(), height.toInt())
+                resizeCss(width, height)
             }
             
             console.log("WebGLEffectHydrator: Initialized with $passCount effect passes")
@@ -246,6 +247,14 @@ class WebGLEffectHydrator(
         canvas.height = height
         gl?.viewport(0, 0, width, height)
         effectComposer?.setSize(width, height)
+    }
+
+    private fun resizeCss(width: Double, height: Double) {
+        val scale = if (config.respectDevicePixelRatio) window.devicePixelRatio else 1.0
+        resize(
+            width = (width * scale).toInt().coerceAtLeast(1),
+            height = (height * scale).toInt().coerceAtLeast(1)
+        )
     }
     
     companion object {

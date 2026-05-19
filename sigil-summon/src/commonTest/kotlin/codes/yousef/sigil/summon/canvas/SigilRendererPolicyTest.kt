@@ -39,6 +39,28 @@ class SigilRendererPolicyTest {
     }
 
     @Test
+    fun preferWebGlFirst_detectsFirefox() {
+        assertTrue(
+            SigilRendererPolicy.preferWebGlFirst(
+                userAgent = "Mozilla/5.0 (X11; Linux x86_64; rv:126.0) Gecko/20100101 Firefox/126.0",
+                webdriver = false,
+                rendererOverride = null
+            )
+        )
+    }
+
+    @Test
+    fun preferWebGlFirst_allowsFirefoxWebGpuOverride() {
+        assertFalse(
+            SigilRendererPolicy.preferWebGlFirst(
+                userAgent = "Mozilla/5.0 Firefox/126.0",
+                webdriver = false,
+                rendererOverride = "webgpu"
+            )
+        )
+    }
+
+    @Test
     fun preferWebGlFirst_detectsWebdriverValidation() {
         assertTrue(
             SigilRendererPolicy.preferWebGlFirst(

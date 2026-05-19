@@ -13,6 +13,7 @@ internal object SigilRendererPolicy {
 
         val normalizedUserAgent = userAgent.orEmpty().lowercase()
         return webdriver ||
+            normalizedUserAgent.contains("firefox") ||
             normalizedUserAgent.contains("headlesschrome") ||
             normalizedUserAgent.contains("swiftshader")
     }
