@@ -32,6 +32,7 @@ class SigilSceneBuilderTest {
             light()
             light()
             camera()
+            text(text = "Label")
             group { }
         }
         
@@ -47,6 +48,7 @@ class SigilSceneBuilderTest {
             mesh()
             light()
             camera()
+            text(text = "Label")
             group { mesh() }
         }
         
@@ -113,6 +115,50 @@ class SigilSceneBuilderTest {
         // scene1 has 1 node, scene2 has 2 nodes (because builder is reused)
         assertEquals(1, scene1.rootNodes.size)
         assertEquals(2, scene2.rootNodes.size)
+    }
+
+    @Test
+    fun textBuilder_addsRootTextNode() {
+        val scene = sigilScene {
+            text(
+                id = "title",
+                text = "Dispatch Board",
+                position = listOf(1f, 2f, 3f),
+                color = 0xFF67E8F9.toInt(),
+                align = TextAlignMode.CENTER,
+                facingMode = TextFacingMode.BILLBOARD,
+                interaction = InteractionMetadata(interactionId = "title-label"),
+                animations = listOf(SceneAnimationData(kind = AnimationKind.PULSE))
+            )
+        }
+
+        val node = scene.rootNodes.single() as TextData
+        assertEquals("title", node.id)
+        assertEquals("Dispatch Board", node.text)
+        assertEquals(listOf(1f, 2f, 3f), node.position)
+        assertEquals(0xFF67E8F9.toInt(), node.color)
+        assertEquals(TextAlignMode.CENTER, node.align)
+        assertEquals(TextFacingMode.BILLBOARD, node.facingMode)
+        assertEquals("title-label", node.interaction?.interactionId)
+        assertEquals(AnimationKind.PULSE, node.animations.single().kind)
+    }
+
+    @Test
+    fun textBuilder_addsGroupedTextNode() {
+        val scene = sigilScene {
+            group(id = "labels") {
+                text(id = "label-a", text = "Truck A", baseline = TextBaselineMode.MIDDLE)
+                mesh(id = "marker")
+            }
+        }
+
+        val group = scene.rootNodes.single() as GroupData
+        assertEquals(2, group.children.size)
+        val label = group.children[0] as TextData
+        assertEquals("label-a", label.id)
+        assertEquals("Truck A", label.text)
+        assertEquals(TextBaselineMode.MIDDLE, label.baseline)
+        assertEquals("marker", group.children[1].id)
     }
 
     // ===== Round-Trip Tests =====

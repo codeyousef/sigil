@@ -7,6 +7,8 @@ import codes.yousef.sigil.summon.components.SigilPlane
 import codes.yousef.sigil.summon.components.SigilAmbientLight
 import codes.yousef.sigil.summon.components.SigilDirectionalLight
 import codes.yousef.sigil.summon.components.SigilCamera
+import codes.yousef.sigil.summon.components.SigilText
+import codes.yousef.sigil.schema.TextFacingMode
 
 /**
  * Sample 3D scene demonstrating Sigil with Summon.
@@ -36,6 +38,25 @@ fun Sample3DScene() {
         metalness = 0.9f,
         roughness = 0.1f,
         position = listOf(0f, 1f, 0f)
+    )
+
+    SigilText(
+        text = "Fixed mesh text",
+        color = 0xFFFFFFFF.toInt(),
+        size = 0.45f,
+        depth = 0.03f,
+        position = listOf(-2.4f, 2.2f, 0f),
+        name = "fixed-sample-label"
+    )
+
+    SigilText(
+        text = "Billboard label",
+        color = 0xFF67E8F9.toInt(),
+        size = 0.35f,
+        depth = 0.02f,
+        position = listOf(1.6f, 2.4f, 0f),
+        facingMode = TextFacingMode.BILLBOARD,
+        name = "billboard-sample-label"
     )
 
     // Surrounding cubes

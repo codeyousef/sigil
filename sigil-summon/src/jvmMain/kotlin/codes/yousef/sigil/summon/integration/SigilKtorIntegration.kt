@@ -37,6 +37,9 @@ object SigilKtorIntegration {
         get("/sigil-hydration.js.map") {
             respondSigilAsset(SigilAssets.Assets.HYDRATION_JS_MAP)
         }
+        get("/sigil-default-font.json") {
+            respondSigilAsset(SigilAssets.Assets.DEFAULT_FONT_JSON)
+        }
         sigilSceneCallbackHandler()
     }
 

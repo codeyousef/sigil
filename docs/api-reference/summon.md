@@ -92,6 +92,22 @@ A context class that holds the current state of the engine, including the active
 
 The platform-agnostic implementation of the canvas handling logic. It bridges the gap between the abstract scene graph and the platform-specific graphics context (JVM AWT, Android Surface, WebGL/WebGPU).
 
+### `SigilText`
+
+Registers mesh text inside a `MateriaCanvas` scene. The browser hydrator renders this as Materia `TextGeometry`, not as DOM overlay text.
+
+```kotlin
+SigilText(
+    text = "Truck A",
+    position = listOf(0f, 2f, 0f),
+    size = 0.4f,
+    color = 0xFFFFFFFF.toInt(),
+    facingMode = TextFacingMode.BILLBOARD
+)
+```
+
+When `fontUrl` is omitted, Sigil loads `/sigil-default-font.json` from the bundled static assets. Custom `fontUrl` values should point to a Three.js-style typeface JSON file.
+
 ---
 
 ## Client-Side Hydration

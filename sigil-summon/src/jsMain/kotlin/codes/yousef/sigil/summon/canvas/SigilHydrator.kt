@@ -5,6 +5,10 @@ import codes.yousef.sigil.schema.SigilNodeData
 import codes.yousef.sigil.schema.MeshData
 import codes.yousef.sigil.schema.ModelData
 import codes.yousef.sigil.schema.ModelMaterialOverride
+import codes.yousef.sigil.schema.TextAlignMode
+import codes.yousef.sigil.schema.TextBaselineMode
+import codes.yousef.sigil.schema.TextData
+import codes.yousef.sigil.schema.TextFacingMode
 import codes.yousef.sigil.schema.GroupData
 import codes.yousef.sigil.schema.LightData
 import codes.yousef.sigil.schema.CameraData
@@ -58,6 +62,10 @@ import io.materia.geometry.OctahedronGeometry
 import io.materia.geometry.TetrahedronGeometry
 import io.materia.geometry.DodecahedronGeometry
 import io.materia.geometry.BufferGeometry
+import io.materia.geometry.TextAlign as MateriaTextAlign
+import io.materia.geometry.TextBaseline as MateriaTextBaseline
+import io.materia.geometry.TextGeometry
+import io.materia.geometry.TextOptions
 import io.materia.loader.AssetResolver
 import io.materia.loader.GLTFLoader
 import io.materia.lighting.AmbientLightImpl
@@ -97,6 +105,7 @@ private val scope = MainScope()
 private const val SIGIL_GLTF_CACHE_SCOPE = "codes.yousef.sigil.gltf"
 private const val SIGIL_MODEL_DATA_KEY = "sigilModelData"
 private const val SIGIL_MODEL_LOAD_STATE_KEY = "sigilModelLoadState"
+private const val SIGIL_TEXT_DATA_KEY = "sigilTextData"
 private const val SIGIL_HIGHLIGHT_PATCH_KEY = "sigilHighlightPatch"
 
 private data class ActiveSceneAnimation(
@@ -196,6 +205,7 @@ class SigilHydrator(
     private var activeDrag: ActiveDrag? = null
     private var hoverDropTarget: Object3D? = null
     private val activeAnimations = mutableListOf<ActiveSceneAnimation>()
+    private val billboardTextNodes = mutableListOf<Object3D>()
     private val baseColorTextureMetadataCache = mutableMapOf<String, List<GltfBaseColorTexture>>()
     private val pendingBaseColorHydrations = mutableMapOf<String, CompletableDeferred<Unit>>()
     private var lastFrameTimeMs: Double = 0.0
@@ -430,6 +440,7 @@ class SigilHydrator(
             orbitControls?.update(deltaSeconds)
             firstPersonControls?.update(deltaSeconds)
             updateSceneAnimations(now)
+            updateBillboardTextNodes()
 
             val r = renderer ?: return
             cam.updateMatrixWorld()
@@ -499,6 +510,7 @@ class SigilHydrator(
         baseColorTextureMetadataCache.clear()
         pendingBaseColorHydrations.clear()
         activeAnimations.clear()
+        billboardTextNodes.clear()
         pendingDrag = null
         activeDrag = null
         dragGesture.reset()
@@ -514,6 +526,7 @@ class SigilHydrator(
         return when (nodeData) {
             is MeshData -> createMesh(nodeData)
             is ModelData -> createModel(nodeData)
+            is TextData -> createText(nodeData)
             is GroupData -> createGroup(nodeData)
             is LightData -> {
                 // Lights in Materia 0.2.0.0 don't extend Object3D
@@ -689,6 +702,88 @@ class SigilHydrator(
         }
 
         return group
+    }
+
+    private fun createText(data: TextData): Group {
+        val group = Group().apply {
+            position.set(data.position[0], data.position[1], data.position[2])
+            rotation.set(data.rotation[0], data.rotation[1], data.rotation[2])
+            scale.set(data.scale[0], data.scale[1], data.scale[2])
+            visible = data.visible
+            name = data.name ?: ""
+            userData[SIGIL_TEXT_DATA_KEY] = data
+        }
+
+        if (data.facingMode == TextFacingMode.BILLBOARD) {
+            billboardTextNodes.add(group)
+        }
+
+        hydrateTextMesh(group, data)
+
+        return group
+    }
+
+    private fun hydrateTextMesh(group: Group, data: TextData) {
+        scope.launch {
+            try {
+                val font = SigilTextFontCache.load(data.fontUrl)
+                val geometry = TextGeometry(data.text, font, data.toTextOptions())
+                val material = MeshBasicMaterial().apply {
+                    color = intToColor(data.color)
+                }
+                val mesh = Mesh(geometry, material).apply {
+                    castShadow = data.castShadow
+                    receiveShadow = data.receiveShadow
+                    name = data.name?.let { "$it-text-mesh" } ?: ""
+                }
+
+                group.clear()
+                group.add(mesh)
+                replayDeferredVisualState(group)
+            } catch (t: Throwable) {
+                console.error("Sigil: Failed to hydrate text ${data.id}: ${t.message}")
+            }
+        }
+    }
+
+    private fun TextData.toTextOptions(): TextOptions = TextOptions(
+        size = size,
+        height = depth,
+        curveSegments = curveSegments,
+        bevelEnabled = false,
+        bevelThickness = 0.1f,
+        bevelSize = 0.05f,
+        bevelOffset = 0f,
+        bevelSegments = 3,
+        letterSpacing = letterSpacing,
+        lineHeight = lineHeight,
+        textAlign = align.toMateriaTextAlign(),
+        textBaseline = baseline.toMateriaTextBaseline(),
+        maxWidth = maxWidth,
+        wordWrap = wordWrap
+    )
+
+    private fun TextAlignMode.toMateriaTextAlign(): MateriaTextAlign = when (this) {
+        TextAlignMode.LEFT -> MateriaTextAlign.LEFT
+        TextAlignMode.CENTER -> MateriaTextAlign.CENTER
+        TextAlignMode.RIGHT -> MateriaTextAlign.RIGHT
+        TextAlignMode.JUSTIFY -> MateriaTextAlign.JUSTIFY
+    }
+
+    private fun TextBaselineMode.toMateriaTextBaseline(): MateriaTextBaseline = when (this) {
+        TextBaselineMode.ALPHABETIC -> MateriaTextBaseline.ALPHABETIC
+        TextBaselineMode.TOP -> MateriaTextBaseline.TOP
+        TextBaselineMode.HANGING -> MateriaTextBaseline.HANGING
+        TextBaselineMode.MIDDLE -> MateriaTextBaseline.MIDDLE
+        TextBaselineMode.IDEOGRAPHIC -> MateriaTextBaseline.IDEOGRAPHIC
+        TextBaselineMode.BOTTOM -> MateriaTextBaseline.BOTTOM
+    }
+
+    private fun updateBillboardTextNodes() {
+        val cam = camera ?: return
+        for (node in billboardTextNodes) {
+            node.quaternion.copy(cam.quaternion)
+        }
     }
 
     private fun applyModelSettings(root: Object3D, data: ModelData) {

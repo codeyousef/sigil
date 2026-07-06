@@ -99,6 +99,13 @@ object SigilQuarkusIntegration {
     }
 
     /**
+     * Serves the default mesh text font.
+     */
+    fun serveDefaultFont(request: HttpServletRequest, response: HttpServletResponse): Boolean {
+        return serveAsset(request, response, SigilAssets.Assets.DEFAULT_FONT_JSON)
+    }
+
+    /**
      * Gets cache headers for Sigil assets.
      * Use these when building responses manually.
      */

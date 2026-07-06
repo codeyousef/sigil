@@ -7,7 +7,11 @@ import codes.yousef.sigil.schema.LightData
 import codes.yousef.sigil.schema.LightType
 import codes.yousef.sigil.schema.MeshData
 import codes.yousef.sigil.schema.SceneSettings
+import codes.yousef.sigil.schema.TextAlignMode
+import codes.yousef.sigil.schema.TextData
+import codes.yousef.sigil.schema.TextFacingMode
 import codes.yousef.sigil.schema.ToneMappingMode
+import codes.yousef.sigil.summon.components.SigilText
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
@@ -95,15 +99,43 @@ class SigilSummonContextTest {
         val context = SigilSummonContext.createServerContext()
         
         context.registerNode(MeshData(id = "mesh"))
+        context.registerNode(TextData(id = "text", text = "Label"))
         context.registerNode(GroupData(id = "group", children = emptyList()))
         context.registerNode(LightData(id = "light"))
         context.registerNode(CameraData(id = "camera"))
         
-        assertEquals(4, context.nodes.size)
+        assertEquals(5, context.nodes.size)
         assertTrue(context.nodes[0] is MeshData)
-        assertTrue(context.nodes[1] is GroupData)
-        assertTrue(context.nodes[2] is LightData)
-        assertTrue(context.nodes[3] is CameraData)
+        assertTrue(context.nodes[1] is TextData)
+        assertTrue(context.nodes[2] is GroupData)
+        assertTrue(context.nodes[3] is LightData)
+        assertTrue(context.nodes[4] is CameraData)
+    }
+
+    @Test
+    fun sigilText_registersTextData() {
+        val context = SigilSummonContext.createServerContext()
+
+        SigilSummonContext.withContext(context) {
+            SigilText(
+                id = "scene-label",
+                text = "Level 1",
+                position = listOf(1f, 2f, 3f),
+                color = 0xFF67E8F9.toInt(),
+                align = TextAlignMode.CENTER,
+                facingMode = TextFacingMode.BILLBOARD,
+                fontUrl = "/fonts/game.typeface.json"
+            )
+        }
+
+        val node = context.nodes.single() as TextData
+        assertEquals("scene-label", node.id)
+        assertEquals("Level 1", node.text)
+        assertEquals(listOf(1f, 2f, 3f), node.position)
+        assertEquals(0xFF67E8F9.toInt(), node.color)
+        assertEquals(TextAlignMode.CENTER, node.align)
+        assertEquals(TextFacingMode.BILLBOARD, node.facingMode)
+        assertEquals("/fonts/game.typeface.json", node.fontUrl)
     }
 
     // ===== Group Context Tests =====

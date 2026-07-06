@@ -1,5 +1,16 @@
 # Changelog
 
+## [Unreleased]
+
+### Added
+
+- Added Summon/browser mesh text nodes with `TextData`, `SigilText`, bundled default font loading, custom typeface JSON support, and billboard camera-facing mode.
+- Bundled `sigil-default-font.json`, based on the Three.js examples Helvetiker typeface JSON asset under the MIT license.
+
+### Tests
+
+- Added schema, builder, Summon registration, JVM asset, and JS font-adapter coverage for text nodes.
+
 ## [0.4.1.7] - 2026-05-19
 
 ### Fixed

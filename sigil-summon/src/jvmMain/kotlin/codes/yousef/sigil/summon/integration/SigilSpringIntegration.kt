@@ -82,6 +82,13 @@ object SigilSpringIntegration {
     fun serveHydrationJsMap(request: HttpServletRequest, response: HttpServletResponse): Boolean {
         return serveAsset(request, response, SigilAssets.Assets.HYDRATION_JS_MAP)
     }
+
+    /**
+     * Serves the default mesh text font.
+     */
+    fun serveDefaultFont(request: HttpServletRequest, response: HttpServletResponse): Boolean {
+        return serveAsset(request, response, SigilAssets.Assets.DEFAULT_FONT_JSON)
+    }
 }
 
 /**
@@ -100,6 +107,7 @@ object SigilSpringIntegration {
  * This will automatically serve:
  * - `/sigil-hydration.js` - The hydration JavaScript bundle
  * - `/sigil-hydration.js.map` - Source map for debugging
+ * - `/sigil-default-font.json` - Default vector font for mesh text
  */
 class SigilWebMvcConfigurer {
     
@@ -117,6 +125,12 @@ class SigilWebMvcConfigurer {
 
             fun handleHydrationJsMap(request: HttpServletRequest, response: HttpServletResponse) {
                 if (!SigilSpringIntegration.serveHydrationJsMap(request, response)) {
+                    response.sendError(HttpServletResponse.SC_NOT_FOUND)
+                }
+            }
+
+            fun handleDefaultFont(request: HttpServletRequest, response: HttpServletResponse) {
+                if (!SigilSpringIntegration.serveDefaultFont(request, response)) {
                     response.sendError(HttpServletResponse.SC_NOT_FOUND)
                 }
             }
