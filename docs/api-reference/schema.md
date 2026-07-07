@@ -28,6 +28,19 @@ Represents a geometric object.
 - `castShadow`: Boolean
 - `receiveShadow`: Boolean
 
+### `TextData`
+Represents mesh text rendered inside the 3D scene.
+- `text`: String
+- `color`: Int
+- `size`, `depth`, `curveSegments`, `letterSpacing`, `lineHeight`
+- `align`: `TextAlignMode` (LEFT, CENTER, RIGHT, JUSTIFY)
+- `baseline`: `TextBaselineMode` (ALPHABETIC, TOP, HANGING, MIDDLE, IDEOGRAPHIC, BOTTOM)
+- `maxWidth`: Float?
+- `wordWrap`: Boolean
+- `facingMode`: `TextFacingMode` (FIXED, BILLBOARD)
+- `fontUrl`: String?
+- `castShadow`, `receiveShadow`: Boolean
+
 ### `GroupData`
 A container for other nodes.
 - `children`: `List<SigilNodeData>`
@@ -58,6 +71,9 @@ A data class holding all potential geometry parameters (width, height, radius, s
 
 ### `LightType`
 `AMBIENT`, `DIRECTIONAL`, `POINT`, `SPOT`, `HEMISPHERE`.
+
+### `TextFacingMode`
+`FIXED` keeps authored rotation. `BILLBOARD` updates the text node to face the active camera each frame.
 
 ---
 

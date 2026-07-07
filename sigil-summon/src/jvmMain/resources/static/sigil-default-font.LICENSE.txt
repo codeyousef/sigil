@@ -1,0 +1,7 @@
+Default Sigil mesh text font
+
+The bundled sigil-default-font.json asset is based on the Helvetiker
+typeface JSON distributed with the Three.js examples package.
+
+Source project: https://github.com/mrdoob/three.js
+License: MIT

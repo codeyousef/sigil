@@ -171,6 +171,63 @@ class SigilSceneBuilder {
     }
 
     /**
+     * Add a mesh text node to the scene.
+     */
+    fun text(
+        id: String = generateNodeId(),
+        text: String,
+        position: List<Float> = listOf(0f, 0f, 0f),
+        rotation: List<Float> = listOf(0f, 0f, 0f),
+        scale: List<Float> = listOf(1f, 1f, 1f),
+        visible: Boolean = true,
+        name: String? = null,
+        interaction: InteractionMetadata? = null,
+        animations: List<SceneAnimationData> = emptyList(),
+        color: Int = 0xFFFFFFFF.toInt(),
+        size: Float = 1f,
+        depth: Float = 0.02f,
+        curveSegments: Int = 12,
+        letterSpacing: Float = 0f,
+        lineHeight: Float = 1.2f,
+        align: TextAlignMode = TextAlignMode.LEFT,
+        baseline: TextBaselineMode = TextBaselineMode.ALPHABETIC,
+        maxWidth: Float? = null,
+        wordWrap: Boolean = false,
+        facingMode: TextFacingMode = TextFacingMode.FIXED,
+        fontUrl: String? = null,
+        castShadow: Boolean = false,
+        receiveShadow: Boolean = false
+    ): TextData {
+        val textNode = TextData(
+            id = id,
+            position = position,
+            rotation = rotation,
+            scale = scale,
+            visible = visible,
+            name = name,
+            interaction = interaction,
+            animations = animations,
+            text = text,
+            color = color,
+            size = size,
+            depth = depth,
+            curveSegments = curveSegments,
+            letterSpacing = letterSpacing,
+            lineHeight = lineHeight,
+            align = align,
+            baseline = baseline,
+            maxWidth = maxWidth,
+            wordWrap = wordWrap,
+            facingMode = facingMode,
+            fontUrl = fontUrl,
+            castShadow = castShadow,
+            receiveShadow = receiveShadow
+        )
+        nodes.add(textNode)
+        return textNode
+    }
+
+    /**
      * Add a camera controls node to the scene
      */
     fun controls(
@@ -408,6 +465,60 @@ class SigilGroupBuilder {
         )
         children.add(model)
         return model
+    }
+
+    fun text(
+        id: String = generateNodeId(),
+        text: String,
+        position: List<Float> = listOf(0f, 0f, 0f),
+        rotation: List<Float> = listOf(0f, 0f, 0f),
+        scale: List<Float> = listOf(1f, 1f, 1f),
+        visible: Boolean = true,
+        name: String? = null,
+        interaction: InteractionMetadata? = null,
+        animations: List<SceneAnimationData> = emptyList(),
+        color: Int = 0xFFFFFFFF.toInt(),
+        size: Float = 1f,
+        depth: Float = 0.02f,
+        curveSegments: Int = 12,
+        letterSpacing: Float = 0f,
+        lineHeight: Float = 1.2f,
+        align: TextAlignMode = TextAlignMode.LEFT,
+        baseline: TextBaselineMode = TextBaselineMode.ALPHABETIC,
+        maxWidth: Float? = null,
+        wordWrap: Boolean = false,
+        facingMode: TextFacingMode = TextFacingMode.FIXED,
+        fontUrl: String? = null,
+        castShadow: Boolean = false,
+        receiveShadow: Boolean = false
+    ): TextData {
+        val textNode = TextData(
+            id = id,
+            position = position,
+            rotation = rotation,
+            scale = scale,
+            visible = visible,
+            name = name,
+            interaction = interaction,
+            animations = animations,
+            text = text,
+            color = color,
+            size = size,
+            depth = depth,
+            curveSegments = curveSegments,
+            letterSpacing = letterSpacing,
+            lineHeight = lineHeight,
+            align = align,
+            baseline = baseline,
+            maxWidth = maxWidth,
+            wordWrap = wordWrap,
+            facingMode = facingMode,
+            fontUrl = fontUrl,
+            castShadow = castShadow,
+            receiveShadow = receiveShadow
+        )
+        children.add(textNode)
+        return textNode
     }
 
     fun controls(

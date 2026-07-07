@@ -20,6 +20,7 @@ object SigilAssets {
     object Assets {
         const val HYDRATION_JS = "sigil-hydration.js"
         const val HYDRATION_JS_MAP = "sigil-hydration.js.map"
+        const val DEFAULT_FONT_JSON = "sigil-default-font.json"
     }
 
     /**

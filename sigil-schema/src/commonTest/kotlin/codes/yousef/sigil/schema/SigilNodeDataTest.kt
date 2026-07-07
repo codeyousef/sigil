@@ -4,6 +4,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
+import kotlin.test.assertFailsWith
 
 /**
  * Comprehensive E2E tests for SigilNodeData and its subclasses.
@@ -26,6 +27,7 @@ class SigilNodeDataTest {
         val nodes = listOf(
             MeshData(id = "mesh") to "mesh",
             ModelData(id = "model", url = "models/room.glb") to "model",
+            TextData(id = "text", text = "Label") to "text",
             GroupData(id = "group") to "group",
             LightData(id = "light") to "light",
             CameraData(id = "camera") to "camera",
@@ -87,6 +89,62 @@ class SigilNodeDataTest {
 
         assertNull(restored.interaction)
         assertTrue(restored.animations.isEmpty())
+    }
+
+    @Test
+    fun polymorphicSerialization_textDataRoundTrips() {
+        val text = TextData(
+            id = "label-1",
+            position = listOf(1f, 2f, 3f),
+            rotation = listOf(0.1f, 0.2f, 0.3f),
+            scale = listOf(2f, 2f, 2f),
+            name = "main-label",
+            text = "Dispatch",
+            color = 0xFF67E8F9.toInt(),
+            size = 0.8f,
+            depth = 0.04f,
+            curveSegments = 8,
+            letterSpacing = 0.03f,
+            lineHeight = 1.1f,
+            align = TextAlignMode.CENTER,
+            baseline = TextBaselineMode.MIDDLE,
+            maxWidth = 4f,
+            wordWrap = true,
+            facingMode = TextFacingMode.BILLBOARD,
+            fontUrl = "/fonts/game.typeface.json",
+            castShadow = true,
+            receiveShadow = true
+        )
+
+        val json = SigilJson.encodeToString(SigilNodeData.serializer(), text)
+        val restored = SigilJson.decodeFromString(SigilNodeData.serializer(), json) as TextData
+
+        assertEquals(text, restored)
+    }
+
+    @Test
+    fun textData_defaultsAreStable() {
+        val text = TextData(id = "label", text = "Hello")
+
+        assertEquals(0xFFFFFFFF.toInt(), text.color)
+        assertEquals(1f, text.size)
+        assertEquals(0.02f, text.depth)
+        assertEquals(12, text.curveSegments)
+        assertEquals(TextAlignMode.LEFT, text.align)
+        assertEquals(TextBaselineMode.ALPHABETIC, text.baseline)
+        assertEquals(TextFacingMode.FIXED, text.facingMode)
+        assertNull(text.fontUrl)
+        assertTrue(!text.castShadow)
+        assertTrue(!text.receiveShadow)
+    }
+
+    @Test
+    fun textData_validationRejectsInvalidValues() {
+        assertFailsWith<IllegalArgumentException> { TextData(id = "blank", text = " ") }
+        assertFailsWith<IllegalArgumentException> { TextData(id = "size", text = "Text", size = 0f) }
+        assertFailsWith<IllegalArgumentException> { TextData(id = "depth", text = "Text", depth = -0.01f) }
+        assertFailsWith<IllegalArgumentException> { TextData(id = "segments", text = "Text", curveSegments = 2) }
+        assertFailsWith<IllegalArgumentException> { TextData(id = "line", text = "Text", lineHeight = 0f) }
     }
 
     // ===== Unicode and Special Characters Tests =====

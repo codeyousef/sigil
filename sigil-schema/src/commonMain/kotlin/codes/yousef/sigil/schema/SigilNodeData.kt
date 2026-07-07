@@ -174,6 +174,48 @@ data class ModelData(
 ) : SigilNodeData()
 
 /**
+ * Represents mesh text in the scene graph.
+ *
+ * Text is rendered as real 3D geometry by the browser/runtime layer.
+ */
+@Serializable
+@SerialName("text")
+data class TextData(
+    override val id: String,
+    override val position: List<Float> = listOf(0f, 0f, 0f),
+    override val rotation: List<Float> = listOf(0f, 0f, 0f),
+    override val scale: List<Float> = listOf(1f, 1f, 1f),
+    override val visible: Boolean = true,
+    override val name: String? = null,
+    override val interaction: InteractionMetadata? = null,
+    override val animations: List<SceneAnimationData> = emptyList(),
+
+    val text: String,
+    val color: Int = 0xFFFFFFFF.toInt(),
+    val size: Float = 1f,
+    val depth: Float = 0.02f,
+    val curveSegments: Int = 12,
+    val letterSpacing: Float = 0f,
+    val lineHeight: Float = 1.2f,
+    val align: TextAlignMode = TextAlignMode.LEFT,
+    val baseline: TextBaselineMode = TextBaselineMode.ALPHABETIC,
+    val maxWidth: Float? = null,
+    val wordWrap: Boolean = false,
+    val facingMode: TextFacingMode = TextFacingMode.FIXED,
+    val fontUrl: String? = null,
+    val castShadow: Boolean = false,
+    val receiveShadow: Boolean = false
+) : SigilNodeData() {
+    init {
+        require(text.isNotBlank()) { "TextData.text must not be blank" }
+        require(size > 0f) { "TextData.size must be positive" }
+        require(depth >= 0f) { "TextData.depth must be non-negative" }
+        require(curveSegments >= 3) { "TextData.curveSegments must be at least 3" }
+        require(lineHeight > 0f) { "TextData.lineHeight must be positive" }
+    }
+}
+
+/**
  * Container node for grouping child nodes together.
  * Provides hierarchical scene organization.
  */
@@ -439,4 +481,37 @@ enum class CameraType {
 enum class ControlsType {
     @SerialName("ORBIT") ORBIT,
     @SerialName("FIRST_PERSON") FIRST_PERSON
+}
+
+/**
+ * Supported text alignment modes.
+ */
+@Serializable
+enum class TextAlignMode {
+    @SerialName("LEFT") LEFT,
+    @SerialName("CENTER") CENTER,
+    @SerialName("RIGHT") RIGHT,
+    @SerialName("JUSTIFY") JUSTIFY
+}
+
+/**
+ * Supported text baseline modes.
+ */
+@Serializable
+enum class TextBaselineMode {
+    @SerialName("ALPHABETIC") ALPHABETIC,
+    @SerialName("TOP") TOP,
+    @SerialName("HANGING") HANGING,
+    @SerialName("MIDDLE") MIDDLE,
+    @SerialName("IDEOGRAPHIC") IDEOGRAPHIC,
+    @SerialName("BOTTOM") BOTTOM
+}
+
+/**
+ * How text should orient relative to the camera.
+ */
+@Serializable
+enum class TextFacingMode {
+    @SerialName("FIXED") FIXED,
+    @SerialName("BILLBOARD") BILLBOARD
 }

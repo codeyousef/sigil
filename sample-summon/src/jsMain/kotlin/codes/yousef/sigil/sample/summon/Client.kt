@@ -6,6 +6,10 @@ import codes.yousef.sigil.schema.SigilScene
 import codes.yousef.sigil.schema.SigilNodeData
 import codes.yousef.sigil.schema.MeshData
 import codes.yousef.sigil.schema.ModelData
+import codes.yousef.sigil.schema.TextAlignMode
+import codes.yousef.sigil.schema.TextBaselineMode
+import codes.yousef.sigil.schema.TextData
+import codes.yousef.sigil.schema.TextFacingMode
 import codes.yousef.sigil.schema.GroupData
 import codes.yousef.sigil.schema.LightData
 import codes.yousef.sigil.schema.CameraData
@@ -24,6 +28,11 @@ import io.materia.geometry.primitives.BoxGeometry
 import io.materia.geometry.primitives.SphereGeometry
 import io.materia.geometry.primitives.PlaneGeometry
 import io.materia.geometry.primitives.CylinderGeometry
+import io.materia.geometry.TextAlign as MateriaTextAlign
+import io.materia.geometry.TextBaseline as MateriaTextBaseline
+import io.materia.geometry.TextGeometry
+import io.materia.geometry.TextGeometryHelper
+import io.materia.geometry.TextOptions
 import io.materia.material.MeshStandardMaterial
 import io.materia.material.MeshBasicMaterial
 import io.materia.lighting.AmbientLightImpl
@@ -85,10 +94,11 @@ private fun hydrateCanvas(canvas: HTMLCanvasElement, sigilScene: SigilScene) {
     )
     camera.position.set(0f, 0f, 5f)
     camera.lookAt(Vector3(0f, 0f, 0f))
+    val billboardTextNodes = mutableListOf<Mesh>()
 
     // Add nodes to scene
     sigilScene.rootNodes.forEach { nodeData ->
-        processNode(nodeData, scene, lightingSystem, camera)
+        processNode(nodeData, scene, lightingSystem, camera, billboardTextNodes)
     }
 
     // Create and configure renderer (async initialization)
@@ -99,6 +109,7 @@ private fun hydrateCanvas(canvas: HTMLCanvasElement, sigilScene: SigilScene) {
         // Animation loop
         fun animate() {
             window.requestAnimationFrame { animate() }
+            billboardTextNodes.forEach { it.quaternion.copy(camera.quaternion) }
             renderer.render(scene, camera)
         }
 
@@ -114,7 +125,8 @@ private fun processNode(
     nodeData: SigilNodeData,
     scene: Scene,
     lightingSystem: DefaultLightingSystem,
-    camera: PerspectiveCamera
+    camera: PerspectiveCamera,
+    billboardTextNodes: MutableList<Mesh>
 ) {
     when (nodeData) {
         is MeshData -> {
@@ -127,8 +139,15 @@ private fun processNode(
         is ModelData -> {
             // Model loading not supported in this sample
         }
+        is TextData -> {
+            val text = createText(nodeData)
+            if (nodeData.facingMode == TextFacingMode.BILLBOARD) {
+                billboardTextNodes.add(text)
+            }
+            scene.add(text)
+        }
         is GroupData -> {
-            val group = createGroup(nodeData, lightingSystem, camera)
+            val group = createGroup(nodeData, lightingSystem, camera, billboardTextNodes)
             scene.add(group)
         }
         is CameraData -> {
@@ -177,6 +196,73 @@ private fun createMesh(meshData: MeshData): Mesh {
     mesh.visible = meshData.visible
 
     return mesh
+}
+
+private fun createText(textData: TextData): Mesh {
+    val geometry = TextGeometry(
+        textData.text,
+        TextGeometryHelper.createTestFont(),
+        textData.toTextOptions()
+    )
+    val material = MeshBasicMaterial().apply {
+        color = Color(textData.color)
+    }
+    val mesh = Mesh(geometry, material)
+
+    mesh.position.set(
+        textData.position[0],
+        textData.position[1],
+        textData.position[2]
+    )
+    mesh.rotation.set(
+        textData.rotation[0],
+        textData.rotation[1],
+        textData.rotation[2]
+    )
+    mesh.scale.set(
+        textData.scale[0],
+        textData.scale[1],
+        textData.scale[2]
+    )
+    mesh.visible = textData.visible
+    mesh.name = textData.name ?: ""
+    mesh.castShadow = textData.castShadow
+    mesh.receiveShadow = textData.receiveShadow
+
+    return mesh
+}
+
+private fun TextData.toTextOptions(): TextOptions = TextOptions(
+    size = size,
+    height = depth,
+    curveSegments = curveSegments,
+    bevelEnabled = false,
+    bevelThickness = 0.1f,
+    bevelSize = 0.05f,
+    bevelOffset = 0f,
+    bevelSegments = 3,
+    letterSpacing = letterSpacing,
+    lineHeight = lineHeight,
+    textAlign = align.toMateriaTextAlign(),
+    textBaseline = baseline.toMateriaTextBaseline(),
+    maxWidth = maxWidth,
+    wordWrap = wordWrap
+)
+
+private fun TextAlignMode.toMateriaTextAlign(): MateriaTextAlign = when (this) {
+    TextAlignMode.LEFT -> MateriaTextAlign.LEFT
+    TextAlignMode.CENTER -> MateriaTextAlign.CENTER
+    TextAlignMode.RIGHT -> MateriaTextAlign.RIGHT
+    TextAlignMode.JUSTIFY -> MateriaTextAlign.JUSTIFY
+}
+
+private fun TextBaselineMode.toMateriaTextBaseline(): MateriaTextBaseline = when (this) {
+    TextBaselineMode.ALPHABETIC -> MateriaTextBaseline.ALPHABETIC
+    TextBaselineMode.TOP -> MateriaTextBaseline.TOP
+    TextBaselineMode.HANGING -> MateriaTextBaseline.HANGING
+    TextBaselineMode.MIDDLE -> MateriaTextBaseline.MIDDLE
+    TextBaselineMode.IDEOGRAPHIC -> MateriaTextBaseline.IDEOGRAPHIC
+    TextBaselineMode.BOTTOM -> MateriaTextBaseline.BOTTOM
 }
 
 /**
@@ -282,7 +368,8 @@ private fun addLight(lightData: LightData, lightingSystem: DefaultLightingSystem
 private fun createGroup(
     groupData: GroupData,
     lightingSystem: DefaultLightingSystem,
-    camera: PerspectiveCamera
+    camera: PerspectiveCamera,
+    billboardTextNodes: MutableList<Mesh>
 ): Group {
     val group = Group()
 
@@ -309,7 +396,14 @@ private fun createGroup(
             is MeshData -> group.add(createMesh(childData))
             is LightData -> addLight(childData, lightingSystem)
             is ModelData -> { /* Model loading not supported in this sample */ }
-            is GroupData -> group.add(createGroup(childData, lightingSystem, camera))
+            is TextData -> {
+                val text = createText(childData)
+                if (childData.facingMode == TextFacingMode.BILLBOARD) {
+                    billboardTextNodes.add(text)
+                }
+                group.add(text)
+            }
+            is GroupData -> group.add(createGroup(childData, lightingSystem, camera, billboardTextNodes))
             is CameraData -> { /* Cameras are handled at scene level */ }
             is ControlsData -> { /* Controls are handled at scene level */ }
         }
