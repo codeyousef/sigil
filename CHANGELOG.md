@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.4.2.0] - 2026-07-07
+
 ### Added
 
 - Added Summon/browser mesh text nodes with `TextData`, `SigilText`, bundled default font loading, custom typeface JSON support, and billboard camera-facing mode.
