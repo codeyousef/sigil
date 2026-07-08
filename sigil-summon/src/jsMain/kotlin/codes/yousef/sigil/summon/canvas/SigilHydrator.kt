@@ -43,6 +43,7 @@ import io.materia.core.math.Vector3
 import io.materia.material.Material as BaseMaterial
 import io.materia.material.MeshBasicMaterial
 import io.materia.material.MeshStandardMaterial
+import io.materia.material.Side
 import io.materia.camera.PerspectiveCamera
 import io.materia.controls.ControlsConfig
 import io.materia.controls.FirstPersonControls
@@ -730,6 +731,7 @@ class SigilHydrator(
                 val geometry = TextGeometry(data.text, font, data.toTextOptions())
                 val material = MeshBasicMaterial().apply {
                     color = intToColor(data.color)
+                    side = Side.DoubleSide
                 }
                 val mesh = Mesh(geometry, material).apply {
                     castShadow = data.castShadow

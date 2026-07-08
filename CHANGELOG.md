@@ -2,6 +2,18 @@
 
 ## [Unreleased]
 
+## [0.4.2.1] - 2026-07-08
+
+### Fixed
+
+- Fixed Summon/browser mesh text font loading by parsing typeface JSON glyph maps directly, so bundled and custom fonts render the full glyph set instead of dropping most text.
+- Text meshes now render double-sided so billboard labels and fixed labels do not disappear from face culling under camera-facing orientation.
+- Rebuilt the bundled `sigil-hydration.js` runtime with the text rendering fix.
+
+### Tests
+
+- Added JS coverage proving a multi-glyph typeface JSON font produces real `TextGeometry` vertices.
+
 ## [0.4.2.0] - 2026-07-07
 
 ### Added
