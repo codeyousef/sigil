@@ -7,14 +7,21 @@ import io.materia.geometry.GlyphPath
 import io.materia.geometry.PathCommand as GeometryPathCommand
 import io.materia.geometry.TextGeometryHelper
 import io.materia.geometry.TextMetrics
+import io.materia.loader.AssetResolver
 import io.materia.loader.Font as LoaderFont
 import io.materia.loader.FontGlyph
-import io.materia.loader.FontLoader
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.floatOrNull
+import kotlinx.serialization.json.intOrNull
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 
 internal const val SIGIL_DEFAULT_FONT_URL = "/sigil-default-font.json"
 
 internal object SigilTextFontCache {
-    private val loader = FontLoader()
+    private val resolver = AssetResolver.default()
     private val fonts = mutableMapOf<String, GeometryFont>()
 
     suspend fun load(fontUrl: String?): GeometryFont {
@@ -22,7 +29,7 @@ internal object SigilTextFontCache {
         fonts[requestedUrl]?.let { return it }
 
         val font = try {
-            loader.load(requestedUrl).toGeometryFont()
+            resolver.load(requestedUrl).decodeToString().toGeometryFont()
         } catch (customFailure: Throwable) {
             if (requestedUrl == SIGIL_DEFAULT_FONT_URL) {
                 console.warn("Sigil: Failed to load default text font: ${customFailure.message}")
@@ -42,6 +49,40 @@ internal object SigilTextFontCache {
     }
 }
 
+private val typefaceJson = Json { ignoreUnknownKeys = true }
+
+internal fun String.toGeometryFont(): GeometryFont {
+    val root = typefaceJson.parseToJsonElement(this).jsonObject
+    val bounds = root["boundingBox"]?.jsonObject
+    val fontBounds = ParsedFontBounds(
+        xMin = bounds.floatValue("xMin"),
+        xMax = bounds.floatValue("xMax"),
+        yMin = bounds.floatValue("yMin"),
+        yMax = bounds.floatValue("yMax")
+    )
+    val convertedGlyphs = root["glyphs"]
+        ?.jsonObject
+        ?.mapNotNull { (key, value) ->
+            val char = key.singleOrNull() ?: return@mapNotNull null
+            val glyph = value.jsonObject
+            char to ParsedFontGlyph(
+                char = char,
+                horizontalAdvance = glyph.floatValue("ha"),
+                pathCommands = glyph.stringValue("o")
+            ).toGeometryGlyph(fontBounds)
+        }
+        ?.toMap()
+        .orEmpty()
+
+    return LoadedGeometryFont(
+        familyName = root.stringValue("familyName").ifBlank { "Unknown" },
+        unitsPerEm = root.intValue("resolution", 1000),
+        ascender = root.floatValue("ascender", fontBounds.yMax),
+        descender = root.floatValue("descender", fontBounds.yMin),
+        glyphs = convertedGlyphs
+    )
+}
+
 internal fun LoaderFont.toGeometryFont(): GeometryFont {
     val convertedGlyphs = glyphs.mapValues { (_, glyph) -> glyph.toGeometryGlyph(boundingBox) }
     return LoadedGeometryFont(
@@ -52,6 +93,19 @@ internal fun LoaderFont.toGeometryFont(): GeometryFont {
         glyphs = convertedGlyphs
     )
 }
+
+private data class ParsedFontBounds(
+    val xMin: Float,
+    val xMax: Float,
+    val yMin: Float,
+    val yMax: Float
+)
+
+private data class ParsedFontGlyph(
+    val char: Char,
+    val horizontalAdvance: Float,
+    val pathCommands: String
+)
 
 private class LoadedGeometryFont(
     override val familyName: String,
@@ -88,6 +142,17 @@ private class LoadedGeometryFont(
             fontBoundingBoxDescent = descent
         )
     }
+}
+
+private fun ParsedFontGlyph.toGeometryGlyph(fontBounds: ParsedFontBounds): Glyph {
+    val commands = pathCommands.toGeometryCommands()
+    return Glyph(
+        unicode = char,
+        width = horizontalAdvance,
+        leftSideBearing = 0f,
+        rightSideBearing = 0f,
+        path = GlyphPath(commands, commands.boundsOrFontBounds(fontBounds))
+    )
 }
 
 private fun FontGlyph.toGeometryGlyph(fontBounds: io.materia.loader.FontBoundingBox): Glyph {
@@ -192,3 +257,63 @@ private fun List<GeometryPathCommand>.boundsOrFontBounds(
         BoundingBox2D(fontBounds.xMin, fontBounds.yMin, fontBounds.xMax, fontBounds.yMax)
     }
 }
+
+private fun List<GeometryPathCommand>.boundsOrFontBounds(
+    fontBounds: ParsedFontBounds
+): BoundingBox2D {
+    var hasPoint = false
+    var minX = 0f
+    var minY = 0f
+    var maxX = 0f
+    var maxY = 0f
+
+    fun include(x: Float, y: Float) {
+        if (!hasPoint) {
+            minX = x
+            maxX = x
+            minY = y
+            maxY = y
+            hasPoint = true
+            return
+        }
+        minX = kotlin.math.min(minX, x)
+        maxX = kotlin.math.max(maxX, x)
+        minY = kotlin.math.min(minY, y)
+        maxY = kotlin.math.max(maxY, y)
+    }
+
+    for (command in this) {
+        when (command) {
+            is GeometryPathCommand.MoveTo -> include(command.x, command.y)
+            is GeometryPathCommand.LineTo -> include(command.x, command.y)
+            is GeometryPathCommand.QuadraticCurveTo -> {
+                include(command.cpx, command.cpy)
+                include(command.x, command.y)
+            }
+            is GeometryPathCommand.BezierCurveTo -> {
+                include(command.cp1x, command.cp1y)
+                include(command.cp2x, command.cp2y)
+                include(command.x, command.y)
+            }
+            GeometryPathCommand.ClosePath -> Unit
+        }
+    }
+
+    return if (hasPoint) {
+        BoundingBox2D(minX, minY, maxX, maxY)
+    } else {
+        BoundingBox2D(fontBounds.xMin, fontBounds.yMin, fontBounds.xMax, fontBounds.yMax)
+    }
+}
+
+private fun JsonObject.stringValue(name: String): String =
+    this[name]?.jsonPrimitive?.contentOrNull.orEmpty()
+
+private fun JsonObject.floatValue(name: String, default: Float = 0f): Float =
+    this[name]?.jsonPrimitive?.floatOrNull ?: default
+
+private fun JsonObject?.floatValue(name: String, default: Float = 0f): Float =
+    this?.get(name)?.jsonPrimitive?.floatOrNull ?: default
+
+private fun JsonObject.intValue(name: String, default: Int = 0): Int =
+    this[name]?.jsonPrimitive?.intOrNull ?: default
