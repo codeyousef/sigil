@@ -2,6 +2,18 @@
 
 ## [Unreleased]
 
+## [0.4.2.2] - 2026-07-08
+
+### Fixed
+
+- Replaced the browser runtime's default text font geometry with Sigil-owned block vector glyphs made from convex contours, avoiding malformed fragments from complex typeface outline triangulation.
+- Custom typeface JSON fonts still load through the existing adapter and fall back to the stable default font when loading fails.
+- Rebuilt the bundled `sigil-hydration.js` runtime with the text geometry fix.
+
+### Tests
+
+- Added JS coverage proving the default font creates `TextGeometry` for the in-scene Fifth Wall control labels.
+
 ## [0.4.2.1] - 2026-07-08
 
 ### Fixed
