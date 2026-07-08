@@ -6,6 +6,7 @@ import io.materia.loader.FontGlyph
 import io.materia.geometry.TextGeometry
 import io.materia.geometry.TextOptions
 import kotlin.test.Test
+import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
@@ -54,6 +55,24 @@ class SigilTextFontAdapterTest {
         assertTrue(geometryFont.measureText("AB", 1f).width > 0f)
 
         val geometry = TextGeometry("AB", geometryFont, TextOptions(size = 1f, height = 0.02f))
+        assertTrue((geometry.getAttribute("position")?.count ?: 0) > 0)
+    }
+
+    @Test
+    fun defaultBlockFont_createsControlLabelTextGeometry() {
+        val geometryFont = SigilDefaultBlockFont.font
+
+        assertEquals("Sigil Block", geometryFont.familyName)
+        assertNotNull(geometryFont.getGlyph('R'))
+        assertNotNull(geometryFont.getGlyph('r'))
+        assertNotNull(geometryFont.getGlyph('1'))
+        assertTrue(geometryFont.measureText("ROUTE TRUCK A", 1f).width > 0f)
+
+        val geometry = TextGeometry(
+            "ROUTE TRUCK A RETURN BIN RESET SHIFT FOCUSED P1",
+            geometryFont,
+            TextOptions(size = 1f, height = 0.02f)
+        )
         assertTrue((geometry.getAttribute("position")?.count ?: 0) > 0)
     }
 }
