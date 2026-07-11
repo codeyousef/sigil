@@ -2,6 +2,17 @@
 
 ## [Unreleased]
 
+## [0.4.3.1] - 2026-07-11
+
+### Fixed
+
+- Preserved authored canvas CSS width and height while adaptive resolution changes the renderer backing-store dimensions, preventing low-DPR scenes from visibly shrinking inside their layout.
+- Kept orthographic screen-layer placement and interaction picking in display-pixel coordinates while the backing resolution adapts independently.
+
+### Tests
+
+- Added browser coverage for percentage, calculated, and fixed canvas display sizes across renderer resizes.
+
 ## [0.4.3.0] - 2026-07-11
 
 ### Added

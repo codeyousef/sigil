@@ -81,12 +81,43 @@ class SigilHydratorScreenLayerTest {
             assertEquals(1, hydrator.hydratedTextMeshCountForTesting())
             assertTrue(canvas.width > 0)
             assertTrue(canvas.height > 0)
+            assertEquals("100%", canvas.style.width)
+            assertEquals("100%", canvas.style.height)
             assertTrue(hydrator.renderScaleForTesting() in 0.75f..1.25f)
             canvasHasRenderedPixels(canvas)?.let { assertTrue(it) }
         } finally {
             hydrator.dispose()
             host.remove()
         }
+    }
+
+    @Test
+    fun authoredCanvasDisplayStyleSurvivesBackingStoreResize() {
+        if (!browserCanvasAvailable()) return
+        val percentageCanvas = document.createElement("canvas") as HTMLCanvasElement
+        percentageCanvas.style.width = "100%"
+        percentageCanvas.style.height = "calc(100vh - 72px)"
+        val expectedPercentageHeight = percentageCanvas.style.height
+        val percentageStyle = SigilCanvasDisplayStyle.capture(percentageCanvas)
+
+        percentageCanvas.style.width = "720px"
+        percentageCanvas.style.height = "405px"
+        percentageStyle.restore(percentageCanvas)
+
+        assertEquals("100%", percentageCanvas.style.width)
+        assertEquals(expectedPercentageHeight, percentageCanvas.style.height)
+
+        val fixedCanvas = document.createElement("canvas") as HTMLCanvasElement
+        fixedCanvas.style.width = "960px"
+        fixedCanvas.style.height = "540px"
+        val fixedStyle = SigilCanvasDisplayStyle.capture(fixedCanvas)
+
+        fixedCanvas.style.width = "720px"
+        fixedCanvas.style.height = "405px"
+        fixedStyle.restore(fixedCanvas)
+
+        assertEquals("960px", fixedCanvas.style.width)
+        assertEquals("540px", fixedCanvas.style.height)
     }
 
     private fun browserCanvasAvailable(): Boolean = js(
