@@ -174,6 +174,23 @@ private data class RuntimeScreenLayer(
     val root: Group
 )
 
+internal data class SigilCanvasDisplayStyle(
+    val width: String?,
+    val height: String?
+) {
+    fun restore(canvas: HTMLCanvasElement) {
+        width?.let { canvas.style.width = it }
+        height?.let { canvas.style.height = it }
+    }
+
+    companion object {
+        fun capture(canvas: HTMLCanvasElement): SigilCanvasDisplayStyle = SigilCanvasDisplayStyle(
+            width = canvas.style.width.takeIf { it.isNotBlank() },
+            height = canvas.style.height.takeIf { it.isNotBlank() }
+        )
+    }
+}
+
 private data class RuntimeFrameStatsText(
     val data: FrameStatsTextData,
     val node: Group,
@@ -237,6 +254,7 @@ class SigilHydrator(
     private val localSceneEventHandlers: Map<String, () -> Unit> = emptyMap()
 ) {
     private var canvas: HTMLCanvasElement = canvas
+    private val authoredCanvasDisplayStyle = SigilCanvasDisplayStyle.capture(canvas)
     private val materiaScene = Scene()
     private val lightingSystem = DefaultLightingSystem()
     private var renderer: Renderer? = null
@@ -453,7 +471,7 @@ class SigilHydrator(
     }
 
     private fun configureInitializedRenderer(renderer: Renderer) {
-        renderer.resize(canvas.width, canvas.height)
+        resizeBackingStore(renderer, canvas.width, canvas.height)
         (renderer as? WebGPURenderer)?.clearColor = intToColor(sceneData.settings.backgroundColor)
         if (renderer is WebGLRenderer) {
             configureSceneTextureFidelity()
@@ -649,13 +667,18 @@ class SigilHydrator(
         val renderHeight = (displayHeight * renderScale).roundToInt().coerceAtLeast(1)
         if (canvas.width != renderWidth) canvas.width = renderWidth
         if (canvas.height != renderHeight) canvas.height = renderHeight
-        renderer?.resize(renderWidth, renderHeight)
+        renderer?.let { resizeBackingStore(it, renderWidth, renderHeight) }
 
         camera?.let { worldCamera ->
             worldCamera.aspect = displayWidth.toFloat() / displayHeight.toFloat()
             worldCamera.updateProjectionMatrix()
         }
         updateScreenLayers(displayWidth, displayHeight)
+    }
+
+    private fun resizeBackingStore(renderer: Renderer, width: Int, height: Int) {
+        renderer.resize(width, height)
+        authoredCanvasDisplayStyle.restore(canvas)
     }
 
     private fun createScreenLayer(data: ScreenLayerData) {
