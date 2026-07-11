@@ -45,6 +45,20 @@ Represents mesh text rendered inside the 3D scene.
 A container for other nodes.
 - `children`: `List<SigilNodeData>`
 
+### `ScreenLayerData`
+An orthographic canvas layer rendered after the world scene.
+- `desktop`, `mobile`: `ScreenLayoutData`
+- `mobileBreakpoint`: Int
+- `order`: Int
+- `clearDepth`: Boolean
+- `children`: normal Sigil scene nodes
+
+### `FrameStatsTextData`
+Smoothed FPS text rendered with the same Materia text geometry as `TextData`.
+
+### `AudioData` and `AudioBusData`
+Browser audio sources and named gain buses. Sources may use a URL or `ProceduralAudioData`; buses may persist volume through local storage or cookies.
+
 ### `LightData`
 Represents a light source.
 - `lightType`: `LightType` (AMBIENT, DIRECTIONAL, POINT, SPOT, HEMISPHERE)
@@ -74,6 +88,17 @@ A data class holding all potential geometry parameters (width, height, radius, s
 
 ### `TextFacingMode`
 `FIXED` keeps authored rotation. `BILLBOARD` updates the text node to face the active camera each frame.
+
+## Runtime Patches
+
+`ScenePatch` can update stable nodes and issue camera, audio, and storage commands without replacing the canvas.
+
+- `SceneNodePatch.text`: rebuilds existing Materia text geometry; `label` remains an alias.
+- `SceneNodePatch.modelUrl`: preloads and atomically swaps a model while retaining the old instance until success.
+- `SceneNodePatch.interactionEnabled`: enables or disables picking without rebuilding the node.
+- `CameraPatch`: position, look-at/orbit target, duration, easing metadata, and momentum cancellation.
+- `AudioPatch`: play, pause, stop, loop, unlock, source volume, or bus volume.
+- `StoragePatch`: set or remove a local-storage/cookie value with an expiry policy.
 
 ---
 

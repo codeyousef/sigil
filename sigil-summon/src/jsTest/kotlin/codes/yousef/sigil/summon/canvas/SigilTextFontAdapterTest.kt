@@ -3,6 +3,7 @@ package codes.yousef.sigil.summon.canvas
 import io.materia.loader.Font
 import io.materia.loader.FontBoundingBox
 import io.materia.loader.FontGlyph
+import io.materia.geometry.PathCommand
 import io.materia.geometry.TextGeometry
 import io.materia.geometry.TextOptions
 import kotlin.test.Test
@@ -59,7 +60,38 @@ class SigilTextFontAdapterTest {
     }
 
     @Test
-    fun defaultBlockFont_createsControlLabelTextGeometry() {
+    fun toGeometryFont_usesTypefaceEndpointFirstCurveOperands() {
+        val geometryFont = """
+            {
+              "familyName": "Curve Test",
+              "resolution": 1000,
+              "ascender": 800,
+              "descender": -200,
+              "boundingBox": { "xMin": 0, "xMax": 800, "yMin": -200, "yMax": 800 },
+              "glyphs": {
+                "Q": { "ha": 700, "o": "m 0 0 q 100 200 300 400 b 500 600 700 800 900 1000 z" }
+              }
+            }
+        """.trimIndent().toGeometryFont()
+
+        val commands = geometryFont.getGlyph('Q')!!.path.commands
+        val quadratic = commands.filterIsInstance<PathCommand.QuadraticCurveTo>().single()
+        val cubic = commands.filterIsInstance<PathCommand.BezierCurveTo>().single()
+
+        assertEquals(300f, quadratic.cpx)
+        assertEquals(400f, quadratic.cpy)
+        assertEquals(100f, quadratic.x)
+        assertEquals(200f, quadratic.y)
+        assertEquals(700f, cubic.cp1x)
+        assertEquals(800f, cubic.cp1y)
+        assertEquals(900f, cubic.cp2x)
+        assertEquals(1000f, cubic.cp2y)
+        assertEquals(500f, cubic.x)
+        assertEquals(600f, cubic.y)
+    }
+
+    @Test
+    fun fallbackBlockFont_createsControlLabelTextGeometry() {
         val geometryFont = SigilDefaultBlockFont.font
 
         assertEquals("Sigil Block", geometryFont.familyName)

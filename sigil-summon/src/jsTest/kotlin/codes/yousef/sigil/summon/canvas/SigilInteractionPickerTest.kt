@@ -3,7 +3,9 @@ package codes.yousef.sigil.summon.canvas
 import codes.yousef.sigil.schema.HitVolumeData
 import codes.yousef.sigil.schema.HitVolumeShape
 import codes.yousef.sigil.schema.InteractionMetadata
+import io.materia.camera.OrthographicCamera
 import io.materia.core.math.Ray
+import io.materia.core.math.Vector2
 import io.materia.core.math.Vector3
 import io.materia.core.scene.Group
 import io.materia.core.scene.Mesh
@@ -17,6 +19,29 @@ import kotlin.test.assertSame
 import kotlin.test.assertTrue
 
 class SigilInteractionPickerTest {
+
+    @Test
+    fun rayFromCameraMapsOrthographicScreenCoordinates() {
+        val camera = OrthographicCamera(
+            left = -100f,
+            right = 100f,
+            top = 50f,
+            bottom = -50f,
+            near = 0.1f,
+            far = 100f
+        ).apply {
+            position.set(0f, 0f, 10f)
+            lookAt(Vector3.ZERO)
+        }
+
+        val ray = SigilInteractionPicker.rayFromCamera(Vector2(0.5f, -0.5f), camera)
+
+        assertClose(50f, ray.origin.x)
+        assertClose(-25f, ray.origin.y)
+        assertClose(0f, ray.direction.x)
+        assertClose(0f, ray.direction.y)
+        assertClose(-1f, ray.direction.z)
+    }
 
     @Test
     fun intersectHitVolume_hitsBoxAfterApplyingNodeTransform() {

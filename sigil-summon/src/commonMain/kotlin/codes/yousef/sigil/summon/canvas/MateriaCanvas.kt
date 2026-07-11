@@ -3,6 +3,8 @@ package codes.yousef.sigil.summon.canvas
 import codes.yousef.summon.annotation.Composable
 import codes.yousef.sigil.schema.SigilScene
 import codes.yousef.sigil.schema.SceneSettings
+import codes.yousef.sigil.schema.AdaptiveResolutionData
+import codes.yousef.sigil.schema.RendererPreference
 
 /**
  * Entry point for rendering a Materia 3D scene within Summon.
@@ -55,7 +57,9 @@ fun SceneConfig(
     fogColor: Int = 0xFFFFFFFF.toInt(),
     fogNear: Float = 10f,
     fogFar: Float = 100f,
-    shadowsEnabled: Boolean = true
+    shadowsEnabled: Boolean = true,
+    rendererPreference: RendererPreference = RendererPreference.AUTO,
+    adaptiveResolution: AdaptiveResolutionData? = null
 ): String {
     val context = codes.yousef.sigil.summon.context.SigilSummonContext.current()
     context.configureSettings {
@@ -65,7 +69,9 @@ fun SceneConfig(
             fogColor = fogColor,
             fogNear = fogNear,
             fogFar = fogFar,
-            shadowsEnabled = shadowsEnabled
+            shadowsEnabled = shadowsEnabled,
+            rendererPreference = rendererPreference,
+            adaptiveResolution = adaptiveResolution
         )
     }
     return ""

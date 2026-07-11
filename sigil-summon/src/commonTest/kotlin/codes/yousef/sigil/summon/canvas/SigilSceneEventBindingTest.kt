@@ -1,6 +1,7 @@
 package codes.yousef.sigil.summon.canvas
 
 import codes.yousef.sigil.schema.SigilJson
+import codes.yousef.sigil.schema.CameraPatch
 import codes.yousef.sigil.schema.SceneNodePatch
 import codes.yousef.sigil.schema.ScenePatch
 import kotlin.test.Test
@@ -97,6 +98,11 @@ class SigilSceneEventBindingTest {
                 ),
                 callbackId = "callback-1",
                 callbackUrl = "/sigil/callback/callback-1",
+                optimisticPatch = ScenePatch(
+                    nodes = listOf(SceneNodePatch(interactionId = "package:1", highlight = null))
+                ),
+                requestKey = "focus-package",
+                suppressWhilePending = true,
                 reloadOnSuccess = true,
                 stopPropagation = true
             )
@@ -115,6 +121,9 @@ class SigilSceneEventBindingTest {
             ).copy(type = "dragenter")
         ))
         assertTrue(restored.single().callbackUrl == "/sigil/callback/callback-1")
+        assertTrue(restored.single().optimisticPatch?.nodes?.single()?.interactionId == "package:1")
+        assertTrue(restored.single().requestKey == "focus-package")
+        assertTrue(restored.single().suppressWhilePending)
         assertTrue(restored.single().reloadOnSuccess == true)
         assertTrue(restored.single().stopPropagation)
     }
@@ -140,6 +149,18 @@ class SigilSceneEventBindingTest {
         assertTrue(response.wantsReload)
         assertTrue(scenePatches.size == 1)
         assertTrue(scenePatches.single().nodes.single().interactionId == "package:1")
+    }
+
+    @Test
+    fun callbackResponsesRetainCameraOnlyPatches() {
+        val response = SigilSceneEventCallbackResponse(
+            scenePatch = ScenePatch(camera = CameraPatch(position = listOf(1f, 2f, 3f)))
+        )
+
+        val patch = response.scenePatchesFor("scene-a").single()
+
+        assertTrue(patch.nodes.isEmpty())
+        assertTrue(patch.camera?.position == listOf(1f, 2f, 3f))
     }
 
     @Test

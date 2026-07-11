@@ -2,6 +2,29 @@
 
 ## [Unreleased]
 
+## [0.4.3.0] - 2026-07-11
+
+### Added
+
+- Added canvas-native `SigilScreenLayer` nodes with responsive desktop/mobile anchors and overlay-first interaction picking through Materia's layered renderer.
+- Added dynamic frame-stat text, adaptive DPR configuration, and explicit WebGL/WebGPU renderer preference.
+- Added `CameraPatch`, `AudioPatch`, and `StoragePatch` commands for guided camera poses, procedural/buffered audio, gain buses, and local-storage/cookie checkpoints.
+- Added `SigilAudio`, `SigilSoundBus`, model preload URLs, persisted sound volume, optimistic interaction patches, and duplicate-request suppression.
+
+### Changed
+
+- Updated the Materia dependency to `0.4.2.2`, including corrected output-space layout, compound-contour holes, and concave glyph triangulation.
+- Restored the bundled vector font as the normal browser text source and retained the block font only as a load-failure fallback.
+- Corrected Three.js typeface quadratic and cubic curve operand ordering in the geometry font adapter.
+- Extended `SceneNodePatch` with real text updates, atomic cached model replacement, and interaction enablement while retaining `label` as a text alias.
+- Scene patches containing only camera, audio, or storage commands now flow through no-reload callback responses.
+- Orbit controls expose Materia's time-based damping, settling epsilon, and bounded frame delta.
+
+### Tests
+
+- Added schema round-trip and validation coverage for all new runtime nodes and commands.
+- Added Summon registration, responsive screen layout, orthographic picking, persistence, request deduplication, model generation, and packaged hydration asset coverage.
+
 ## [0.4.2.2] - 2026-07-08
 
 ### Fixed

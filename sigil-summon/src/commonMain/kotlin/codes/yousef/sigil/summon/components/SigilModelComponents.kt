@@ -26,6 +26,7 @@ import codes.yousef.sigil.summon.context.SigilSummonContext
 @Composable
 fun SigilModel(
     url: String,
+    preloadUrls: List<String> = emptyList(),
     position: List<Float> = listOf(0f, 0f, 0f),
     rotation: List<Float> = listOf(0f, 0f, 0f),
     scale: List<Float> = listOf(1f, 1f, 1f),
@@ -50,6 +51,7 @@ fun SigilModel(
         interaction = interaction,
         animations = animations,
         url = url,
+        preloadUrls = preloadUrls,
         castShadow = castShadow,
         receiveShadow = receiveShadow,
         materialOverrides = materialOverrides
@@ -68,6 +70,9 @@ fun SigilOrbitControls(
     target: List<Float> = listOf(0f, 0f, 0f),
     enableDamping: Boolean = true,
     dampingFactor: Float = 0.05f,
+    dampingTime: Float = 0.04f,
+    settleEpsilon: Float = 0.0001f,
+    maxDeltaTime: Float = 0.05f,
     minDistance: Float = 1f,
     maxDistance: Float = 1000f,
     minPolarAngle: Float = 0f,
@@ -100,6 +105,9 @@ fun SigilOrbitControls(
         target = target,
         enableDamping = enableDamping,
         dampingFactor = dampingFactor,
+        dampingTime = dampingTime,
+        settleEpsilon = settleEpsilon,
+        maxDeltaTime = maxDeltaTime,
         minDistance = minDistance,
         maxDistance = maxDistance,
         minPolarAngle = minPolarAngle,

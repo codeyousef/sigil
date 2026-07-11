@@ -141,8 +141,14 @@ enum class AnimationEasing {
 
 @Serializable
 data class ScenePatch(
-    val nodes: List<SceneNodePatch> = emptyList()
+    val nodes: List<SceneNodePatch> = emptyList(),
+    val camera: CameraPatch? = null,
+    val audio: List<AudioPatch> = emptyList(),
+    val storage: List<StoragePatch> = emptyList()
 ) {
+    val isEmpty: Boolean
+        get() = nodes.isEmpty() && camera == null && audio.isEmpty() && storage.isEmpty()
+
     companion object {
         fun fromJson(json: String): ScenePatch =
             SigilJson.parseToJsonElement(json).toScenePatch()
@@ -159,9 +165,87 @@ data class SceneNodePatch(
     val visible: Boolean? = null,
     val name: String? = null,
     val highlight: HighlightPatch? = null,
+    val text: String? = null,
+    val modelUrl: String? = null,
+    val interactionEnabled: Boolean? = null,
+    /** Backwards-compatible alias for [text]. */
     val label: String? = null,
     val animations: List<SceneAnimationData> = emptyList()
 )
+
+@Serializable
+data class CameraPatch(
+    val position: List<Float>,
+    val lookAt: List<Float>? = null,
+    val orbitTarget: List<Float>? = lookAt,
+    val durationMs: Int = 600,
+    val easing: AnimationEasing = AnimationEasing.EASE_IN_OUT,
+    val cancelMomentum: Boolean = true
+) {
+    init {
+        require(position.size >= 3) { "CameraPatch.position requires three values" }
+        require(lookAt == null || lookAt.size >= 3) { "CameraPatch.lookAt requires three values" }
+        require(orbitTarget == null || orbitTarget.size >= 3) {
+            "CameraPatch.orbitTarget requires three values"
+        }
+        require(durationMs >= 0) { "CameraPatch.durationMs must be non-negative" }
+    }
+}
+
+@Serializable
+data class AudioPatch(
+    val action: AudioPatchAction,
+    val sourceId: String? = null,
+    val bus: String? = null,
+    val volume: Float? = null,
+    val loop: Boolean? = null,
+    val persist: Boolean = true
+) {
+    init {
+        require(sourceId == null || sourceId.isNotBlank()) { "AudioPatch.sourceId must be null or nonblank" }
+        require(bus == null || bus.isNotBlank()) { "AudioPatch.bus must be null or nonblank" }
+        require(volume == null || volume in 0f..1f) { "AudioPatch.volume must be between 0 and 1" }
+    }
+}
+
+@Serializable
+enum class AudioPatchAction {
+    @SerialName("play") PLAY,
+    @SerialName("pause") PAUSE,
+    @SerialName("stop") STOP,
+    @SerialName("setVolume") SET_VOLUME,
+    @SerialName("setLoop") SET_LOOP,
+    @SerialName("unlock") UNLOCK
+}
+
+@Serializable
+data class StoragePatch(
+    val action: StoragePatchAction,
+    val key: String,
+    val value: String? = null,
+    val backend: StorageBackend = StorageBackend.LOCAL_STORAGE,
+    val expiresDays: Int = 30
+) {
+    init {
+        require(key.isNotBlank()) { "StoragePatch.key must not be blank" }
+        require(expiresDays > 0) { "StoragePatch.expiresDays must be positive" }
+        require(action != StoragePatchAction.SET || value != null) {
+            "StoragePatch.value is required for SET"
+        }
+    }
+}
+
+@Serializable
+enum class StoragePatchAction {
+    @SerialName("set") SET,
+    @SerialName("remove") REMOVE
+}
+
+@Serializable
+enum class StorageBackend {
+    @SerialName("localStorage") LOCAL_STORAGE,
+    @SerialName("cookie") COOKIE
+}
 
 @Serializable
 data class HighlightPatch(
@@ -232,13 +316,19 @@ fun JsonElement.toSceneAnimationData(): SceneAnimationData {
 fun ScenePatch.toJson(): String = toJsonObject().toString()
 
 private fun ScenePatch.toJsonObject(): JsonObject = jsonObjectOf(
-    "nodes" to JsonArray(nodes.map { it.toJsonObject() })
+    "nodes" to JsonArray(nodes.map { it.toJsonObject() }),
+    "camera" to camera?.toJsonObject(),
+    "audio" to JsonArray(audio.map { it.toJsonObject() }),
+    "storage" to JsonArray(storage.map { it.toJsonObject() })
 )
 
 private fun JsonElement.toScenePatch(): ScenePatch {
     val obj = this as? JsonObject ?: JsonObject(emptyMap())
     return ScenePatch(
-        nodes = obj.arrayOrEmpty("nodes").mapNotNull { (it as? JsonObject)?.toSceneNodePatch() }
+        nodes = obj.arrayOrEmpty("nodes").mapNotNull { (it as? JsonObject)?.toSceneNodePatch() },
+        camera = obj.objOrNull("camera")?.toCameraPatch(),
+        audio = obj.arrayOrEmpty("audio").mapNotNull { (it as? JsonObject)?.toAudioPatch() },
+        storage = obj.arrayOrEmpty("storage").mapNotNull { (it as? JsonObject)?.toStoragePatch() }
     )
 }
 
@@ -251,6 +341,9 @@ private fun SceneNodePatch.toJsonObject(): JsonObject = jsonObjectOf(
     "visible" to visible?.let(::JsonPrimitive),
     "name" to name?.let(::JsonPrimitive),
     "highlight" to highlight?.toJsonObject(),
+    "text" to text?.let(::JsonPrimitive),
+    "modelUrl" to modelUrl?.let(::JsonPrimitive),
+    "interactionEnabled" to interactionEnabled?.let(::JsonPrimitive),
     "label" to label?.let(::JsonPrimitive),
     "animations" to JsonArray(animations.map { it.toJsonObject() })
 )
@@ -264,8 +357,65 @@ private fun JsonObject.toSceneNodePatch(): SceneNodePatch = SceneNodePatch(
     visible = booleanOrNull("visible"),
     name = stringOrNull("name"),
     highlight = objOrNull("highlight")?.toHighlightPatch(),
+    text = stringOrNull("text"),
+    modelUrl = stringOrNull("modelUrl"),
+    interactionEnabled = booleanOrNull("interactionEnabled"),
     label = stringOrNull("label"),
     animations = arrayOrEmpty("animations").map { it.toSceneAnimationData() }
+)
+
+private fun CameraPatch.toJsonObject(): JsonObject = jsonObjectOf(
+    "position" to position.toFloatJsonArray(),
+    "lookAt" to lookAt?.toFloatJsonArray(),
+    "orbitTarget" to orbitTarget?.toFloatJsonArray(),
+    "durationMs" to JsonPrimitive(durationMs),
+    "easing" to JsonPrimitive(easing.serialName),
+    "cancelMomentum" to JsonPrimitive(cancelMomentum)
+)
+
+private fun JsonObject.toCameraPatch(): CameraPatch = CameraPatch(
+    position = floatListOrNull("position") ?: listOf(0f, 0f, 5f),
+    lookAt = floatListOrNull("lookAt"),
+    orbitTarget = floatListOrNull("orbitTarget"),
+    durationMs = intOrNull("durationMs") ?: 600,
+    easing = animationEasingFromSerialName(stringOrNull("easing")) ?: AnimationEasing.EASE_IN_OUT,
+    cancelMomentum = booleanOrNull("cancelMomentum") ?: true
+)
+
+private fun AudioPatch.toJsonObject(): JsonObject = jsonObjectOf(
+    "action" to JsonPrimitive(action.serialName),
+    "sourceId" to sourceId?.let(::JsonPrimitive),
+    "bus" to bus?.let(::JsonPrimitive),
+    "volume" to volume?.let(::JsonPrimitive),
+    "loop" to loop?.let(::JsonPrimitive),
+    "persist" to JsonPrimitive(persist)
+)
+
+private fun JsonObject.toAudioPatch(): AudioPatch = AudioPatch(
+    action = audioPatchActionFromSerialName(stringOrNull("action"))
+        ?: throw SerializationException("AudioPatch.action is required"),
+    sourceId = stringOrNull("sourceId"),
+    bus = stringOrNull("bus"),
+    volume = floatOrNull("volume"),
+    loop = booleanOrNull("loop"),
+    persist = booleanOrNull("persist") ?: true
+)
+
+private fun StoragePatch.toJsonObject(): JsonObject = jsonObjectOf(
+    "action" to JsonPrimitive(action.serialName),
+    "key" to JsonPrimitive(key),
+    "value" to value?.let(::JsonPrimitive),
+    "backend" to JsonPrimitive(backend.serialName),
+    "expiresDays" to JsonPrimitive(expiresDays)
+)
+
+private fun JsonObject.toStoragePatch(): StoragePatch = StoragePatch(
+    action = storagePatchActionFromSerialName(stringOrNull("action"))
+        ?: throw SerializationException("StoragePatch.action is required"),
+    key = stringOrNull("key") ?: throw SerializationException("StoragePatch.key is required"),
+    value = stringOrNull("value"),
+    backend = storageBackendFromSerialName(stringOrNull("backend")) ?: StorageBackend.LOCAL_STORAGE,
+    expiresDays = intOrNull("expiresDays") ?: 30
 )
 
 private fun HighlightPatch.toJsonObject(): JsonObject = jsonObjectOf(
@@ -486,5 +636,49 @@ private fun animationEasingFromSerialName(value: String?): AnimationEasing? = wh
     "easeIn", "EASE_IN" -> AnimationEasing.EASE_IN
     "easeOut", "EASE_OUT" -> AnimationEasing.EASE_OUT
     "easeInOut", "EASE_IN_OUT" -> AnimationEasing.EASE_IN_OUT
+    else -> null
+}
+
+private val AudioPatchAction.serialName: String
+    get() = when (this) {
+        AudioPatchAction.PLAY -> "play"
+        AudioPatchAction.PAUSE -> "pause"
+        AudioPatchAction.STOP -> "stop"
+        AudioPatchAction.SET_VOLUME -> "setVolume"
+        AudioPatchAction.SET_LOOP -> "setLoop"
+        AudioPatchAction.UNLOCK -> "unlock"
+    }
+
+private fun audioPatchActionFromSerialName(value: String?): AudioPatchAction? = when (value) {
+    "play", "PLAY" -> AudioPatchAction.PLAY
+    "pause", "PAUSE" -> AudioPatchAction.PAUSE
+    "stop", "STOP" -> AudioPatchAction.STOP
+    "setVolume", "SET_VOLUME" -> AudioPatchAction.SET_VOLUME
+    "setLoop", "SET_LOOP" -> AudioPatchAction.SET_LOOP
+    "unlock", "UNLOCK" -> AudioPatchAction.UNLOCK
+    else -> null
+}
+
+private val StoragePatchAction.serialName: String
+    get() = when (this) {
+        StoragePatchAction.SET -> "set"
+        StoragePatchAction.REMOVE -> "remove"
+    }
+
+private fun storagePatchActionFromSerialName(value: String?): StoragePatchAction? = when (value) {
+    "set", "SET" -> StoragePatchAction.SET
+    "remove", "REMOVE" -> StoragePatchAction.REMOVE
+    else -> null
+}
+
+private val StorageBackend.serialName: String
+    get() = when (this) {
+        StorageBackend.LOCAL_STORAGE -> "localStorage"
+        StorageBackend.COOKIE -> "cookie"
+    }
+
+private fun storageBackendFromSerialName(value: String?): StorageBackend? = when (value) {
+    "localStorage", "LOCAL_STORAGE" -> StorageBackend.LOCAL_STORAGE
+    "cookie", "COOKIE" -> StorageBackend.COOKIE
     else -> null
 }

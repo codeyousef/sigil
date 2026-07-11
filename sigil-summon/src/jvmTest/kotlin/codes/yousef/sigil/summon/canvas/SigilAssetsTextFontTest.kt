@@ -7,6 +7,18 @@ import kotlin.test.assertTrue
 
 class SigilAssetsTextFontTest {
     @Test
+    fun hydrationBundleContainsCanvasRuntimePatchContracts() {
+        val result = SigilAssets.loadAsset(SigilAssets.Assets.HYDRATION_JS)
+
+        assertNotNull(result)
+        assertEquals(SigilAssets.ContentTypes.JAVASCRIPT, result.contentType)
+        val script = result.bytes.decodeToString()
+        assertTrue(script.contains("screenLayer"))
+        assertTrue(script.contains("modelUrl"))
+        assertTrue(script.contains("interactionEnabled"))
+    }
+
+    @Test
     fun loadAsset_defaultFont_returnsJsonAsset() {
         val result = SigilAssets.loadAsset(SigilAssets.Assets.DEFAULT_FONT_JSON)
 
