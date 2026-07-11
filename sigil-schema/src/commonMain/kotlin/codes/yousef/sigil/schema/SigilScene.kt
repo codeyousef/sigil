@@ -43,8 +43,8 @@ data class SigilScene(
     private fun findInNodes(nodes: List<SigilNodeData>, id: String): SigilNodeData? {
         for (node in nodes) {
             if (node.id == id) return node
-            if (node is GroupData) {
-                findInNodes(node.children, id)?.let { return it }
+            node.childrenOrEmpty().takeIf { it.isNotEmpty() }?.let { children ->
+                findInNodes(children, id)?.let { return it }
             }
         }
         return null
@@ -53,8 +53,8 @@ data class SigilScene(
     private fun findInNodesByInteractionId(nodes: List<SigilNodeData>, interactionId: String): SigilNodeData? {
         for (node in nodes) {
             if (node.interaction?.interactionId == interactionId) return node
-            if (node is GroupData) {
-                findInNodesByInteractionId(node.children, interactionId)?.let { return it }
+            node.childrenOrEmpty().takeIf { it.isNotEmpty() }?.let { children ->
+                findInNodesByInteractionId(children, interactionId)?.let { return it }
             }
         }
         return null
@@ -64,11 +64,16 @@ data class SigilScene(
         val result = mutableListOf<SigilNodeData>()
         for (node in nodes) {
             result.add(node)
-            if (node is GroupData) {
-                result.addAll(collectNodes(node.children))
-            }
+            val children = node.childrenOrEmpty()
+            if (children.isNotEmpty()) result.addAll(collectNodes(children))
         }
         return result
+    }
+
+    private fun SigilNodeData.childrenOrEmpty(): List<SigilNodeData> = when (this) {
+        is GroupData -> children
+        is ScreenLayerData -> children
+        else -> emptyList()
     }
 
     companion object {
@@ -122,7 +127,13 @@ data class SceneSettings(
     /**
      * Exposure for tone mapping
      */
-    val exposure: Float = 1f
+    val exposure: Float = 1f,
+
+    /** Explicit browser renderer selection. AUTO retains feature-based fallback. */
+    val rendererPreference: RendererPreference = RendererPreference.AUTO,
+
+    /** Optional adaptive render-resolution policy for browser runtimes. */
+    val adaptiveResolution: AdaptiveResolutionData? = null
 )
 
 /**

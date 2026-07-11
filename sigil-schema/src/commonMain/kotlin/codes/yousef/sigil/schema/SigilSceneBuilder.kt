@@ -141,6 +141,7 @@ class SigilSceneBuilder {
     fun model(
         id: String = generateNodeId(),
         url: String,
+        preloadUrls: List<String> = emptyList(),
         position: List<Float> = listOf(0f, 0f, 0f),
         rotation: List<Float> = listOf(0f, 0f, 0f),
         scale: List<Float> = listOf(1f, 1f, 1f),
@@ -162,6 +163,7 @@ class SigilSceneBuilder {
             interaction = interaction,
             animations = animations,
             url = url,
+            preloadUrls = preloadUrls,
             castShadow = castShadow,
             receiveShadow = receiveShadow,
             materialOverrides = materialOverrides
@@ -227,6 +229,90 @@ class SigilSceneBuilder {
         return textNode
     }
 
+    fun frameStatsText(
+        id: String = generateNodeId(),
+        position: List<Float> = listOf(0f, 0f, 0f),
+        rotation: List<Float> = listOf(0f, 0f, 0f),
+        scale: List<Float> = listOf(1f, 1f, 1f),
+        visible: Boolean = true,
+        name: String? = null,
+        interaction: InteractionMetadata? = null,
+        animations: List<SceneAnimationData> = emptyList(),
+        prefix: String = "FPS ",
+        decimalPlaces: Int = 0,
+        updateIntervalMs: Int = 250,
+        color: Int = 0xFFFFFFFF.toInt(),
+        size: Float = 18f,
+        depth: Float = 0.01f,
+        align: TextAlignMode = TextAlignMode.LEFT,
+        baseline: TextBaselineMode = TextBaselineMode.TOP,
+        fontUrl: String? = null
+    ): FrameStatsTextData = FrameStatsTextData(
+        id = id,
+        position = position,
+        rotation = rotation,
+        scale = scale,
+        visible = visible,
+        name = name,
+        interaction = interaction,
+        animations = animations,
+        prefix = prefix,
+        decimalPlaces = decimalPlaces,
+        updateIntervalMs = updateIntervalMs,
+        color = color,
+        size = size,
+        depth = depth,
+        align = align,
+        baseline = baseline,
+        fontUrl = fontUrl
+    ).also(nodes::add)
+
+    fun audio(
+        id: String = generateNodeId(),
+        url: String? = null,
+        procedural: ProceduralAudioData? = null,
+        position: List<Float> = listOf(0f, 0f, 0f),
+        volume: Float = 1f,
+        loop: Boolean = false,
+        autoplay: Boolean = false,
+        bus: String = "master",
+        positional: Boolean = false,
+        refDistance: Float = 1f,
+        maxDistance: Float = 10000f,
+        rolloffFactor: Float = 1f,
+        visible: Boolean = true,
+        name: String? = null
+    ): AudioData = AudioData(
+        id = id,
+        position = position,
+        visible = visible,
+        name = name,
+        url = url,
+        procedural = procedural,
+        bus = bus,
+        volume = volume,
+        loop = loop,
+        autoplay = autoplay,
+        positional = positional,
+        refDistance = refDistance,
+        maxDistance = maxDistance,
+        rolloffFactor = rolloffFactor
+    ).also(nodes::add)
+
+    fun audioBus(
+        id: String = generateNodeId(),
+        bus: String,
+        volume: Float = 1f,
+        storageKey: String? = null,
+        storageBackend: StorageBackend = StorageBackend.LOCAL_STORAGE
+    ): AudioBusData = AudioBusData(
+        id = id,
+        bus = bus,
+        volume = volume,
+        storageKey = storageKey,
+        storageBackend = storageBackend
+    ).also(nodes::add)
+
     /**
      * Add a camera controls node to the scene
      */
@@ -241,6 +327,9 @@ class SigilSceneBuilder {
         target: List<Float> = listOf(0f, 0f, 0f),
         enableDamping: Boolean = true,
         dampingFactor: Float = 0.05f,
+        dampingTime: Float = 0.04f,
+        settleEpsilon: Float = 0.0001f,
+        maxDeltaTime: Float = 0.05f,
         minDistance: Float = 1f,
         maxDistance: Float = 1000f,
         minPolarAngle: Float = 0f,
@@ -273,6 +362,9 @@ class SigilSceneBuilder {
             target = target,
             enableDamping = enableDamping,
             dampingFactor = dampingFactor,
+            dampingTime = dampingTime,
+            settleEpsilon = settleEpsilon,
+            maxDeltaTime = maxDeltaTime,
             minDistance = minDistance,
             maxDistance = maxDistance,
             minPolarAngle = minPolarAngle,
@@ -325,6 +417,41 @@ class SigilSceneBuilder {
         return group
     }
 
+    fun screenLayer(
+        id: String = generateNodeId(),
+        position: List<Float> = listOf(0f, 0f, 0f),
+        rotation: List<Float> = listOf(0f, 0f, 0f),
+        scale: List<Float> = listOf(1f, 1f, 1f),
+        visible: Boolean = true,
+        name: String? = null,
+        interaction: InteractionMetadata? = null,
+        animations: List<SceneAnimationData> = emptyList(),
+        desktop: ScreenLayoutData = ScreenLayoutData(),
+        mobile: ScreenLayoutData = desktop,
+        mobileBreakpoint: Int = 640,
+        order: Int = 0,
+        clearDepth: Boolean = true,
+        content: SigilGroupBuilder.() -> Unit
+    ): ScreenLayerData {
+        val builder = SigilGroupBuilder().apply(content)
+        return ScreenLayerData(
+            id = id,
+            position = position,
+            rotation = rotation,
+            scale = scale,
+            visible = visible,
+            name = name,
+            interaction = interaction,
+            animations = animations,
+            desktop = desktop,
+            mobile = mobile,
+            mobileBreakpoint = mobileBreakpoint,
+            order = order,
+            clearDepth = clearDepth,
+            children = builder.build()
+        ).also(nodes::add)
+    }
+
     /**
      * Configure scene settings
      */
@@ -336,7 +463,9 @@ class SigilSceneBuilder {
         fogFar: Float = 100f,
         shadowsEnabled: Boolean = true,
         toneMapping: ToneMappingMode = ToneMappingMode.ACES_FILMIC,
-        exposure: Float = 1f
+        exposure: Float = 1f,
+        rendererPreference: RendererPreference = RendererPreference.AUTO,
+        adaptiveResolution: AdaptiveResolutionData? = null
     ) {
         settings = SceneSettings(
             backgroundColor = backgroundColor,
@@ -346,7 +475,9 @@ class SigilSceneBuilder {
             fogFar = fogFar,
             shadowsEnabled = shadowsEnabled,
             toneMapping = toneMapping,
-            exposure = exposure
+            exposure = exposure,
+            rendererPreference = rendererPreference,
+            adaptiveResolution = adaptiveResolution
         )
     }
 
@@ -438,6 +569,7 @@ class SigilGroupBuilder {
     fun model(
         id: String = generateNodeId(),
         url: String,
+        preloadUrls: List<String> = emptyList(),
         position: List<Float> = listOf(0f, 0f, 0f),
         rotation: List<Float> = listOf(0f, 0f, 0f),
         scale: List<Float> = listOf(1f, 1f, 1f),
@@ -459,6 +591,7 @@ class SigilGroupBuilder {
             interaction = interaction,
             animations = animations,
             url = url,
+            preloadUrls = preloadUrls,
             castShadow = castShadow,
             receiveShadow = receiveShadow,
             materialOverrides = materialOverrides
@@ -521,6 +654,90 @@ class SigilGroupBuilder {
         return textNode
     }
 
+    fun frameStatsText(
+        id: String = generateNodeId(),
+        position: List<Float> = listOf(0f, 0f, 0f),
+        rotation: List<Float> = listOf(0f, 0f, 0f),
+        scale: List<Float> = listOf(1f, 1f, 1f),
+        visible: Boolean = true,
+        name: String? = null,
+        interaction: InteractionMetadata? = null,
+        animations: List<SceneAnimationData> = emptyList(),
+        prefix: String = "FPS ",
+        decimalPlaces: Int = 0,
+        updateIntervalMs: Int = 250,
+        color: Int = 0xFFFFFFFF.toInt(),
+        size: Float = 18f,
+        depth: Float = 0.01f,
+        align: TextAlignMode = TextAlignMode.LEFT,
+        baseline: TextBaselineMode = TextBaselineMode.TOP,
+        fontUrl: String? = null
+    ): FrameStatsTextData = FrameStatsTextData(
+        id = id,
+        position = position,
+        rotation = rotation,
+        scale = scale,
+        visible = visible,
+        name = name,
+        interaction = interaction,
+        animations = animations,
+        prefix = prefix,
+        decimalPlaces = decimalPlaces,
+        updateIntervalMs = updateIntervalMs,
+        color = color,
+        size = size,
+        depth = depth,
+        align = align,
+        baseline = baseline,
+        fontUrl = fontUrl
+    ).also(children::add)
+
+    fun audio(
+        id: String = generateNodeId(),
+        url: String? = null,
+        procedural: ProceduralAudioData? = null,
+        position: List<Float> = listOf(0f, 0f, 0f),
+        volume: Float = 1f,
+        loop: Boolean = false,
+        autoplay: Boolean = false,
+        bus: String = "master",
+        positional: Boolean = false,
+        refDistance: Float = 1f,
+        maxDistance: Float = 10000f,
+        rolloffFactor: Float = 1f,
+        visible: Boolean = true,
+        name: String? = null
+    ): AudioData = AudioData(
+        id = id,
+        position = position,
+        visible = visible,
+        name = name,
+        url = url,
+        procedural = procedural,
+        bus = bus,
+        volume = volume,
+        loop = loop,
+        autoplay = autoplay,
+        positional = positional,
+        refDistance = refDistance,
+        maxDistance = maxDistance,
+        rolloffFactor = rolloffFactor
+    ).also(children::add)
+
+    fun audioBus(
+        id: String = generateNodeId(),
+        bus: String,
+        volume: Float = 1f,
+        storageKey: String? = null,
+        storageBackend: StorageBackend = StorageBackend.LOCAL_STORAGE
+    ): AudioBusData = AudioBusData(
+        id = id,
+        bus = bus,
+        volume = volume,
+        storageKey = storageKey,
+        storageBackend = storageBackend
+    ).also(children::add)
+
     fun controls(
         id: String = generateNodeId(),
         position: List<Float> = listOf(0f, 0f, 0f),
@@ -532,6 +749,9 @@ class SigilGroupBuilder {
         target: List<Float> = listOf(0f, 0f, 0f),
         enableDamping: Boolean = true,
         dampingFactor: Float = 0.05f,
+        dampingTime: Float = 0.04f,
+        settleEpsilon: Float = 0.0001f,
+        maxDeltaTime: Float = 0.05f,
         minDistance: Float = 1f,
         maxDistance: Float = 1000f,
         minPolarAngle: Float = 0f,
@@ -564,6 +784,9 @@ class SigilGroupBuilder {
             target = target,
             enableDamping = enableDamping,
             dampingFactor = dampingFactor,
+            dampingTime = dampingTime,
+            settleEpsilon = settleEpsilon,
+            maxDeltaTime = maxDeltaTime,
             minDistance = minDistance,
             maxDistance = maxDistance,
             minPolarAngle = minPolarAngle,

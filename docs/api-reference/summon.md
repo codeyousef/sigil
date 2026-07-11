@@ -108,6 +108,57 @@ SigilText(
 
 When `fontUrl` is omitted, Sigil loads `/sigil-default-font.json` from the bundled static assets. Custom `fontUrl` values should point to a Three.js-style typeface JSON file.
 
+### `SigilScreenLayer`
+
+Renders normal Sigil primitives and text through a second orthographic Materia pass. The layer remains inside the WebGL/WebGPU canvas and receives pointer input before the world scene.
+
+```kotlin
+SigilScreenLayer(
+    desktop = ScreenLayoutData(ScreenAnchor.TOP_RIGHT, 24f, 24f),
+    mobile = ScreenLayoutData(ScreenAnchor.BOTTOM_CENTER, 0f, 16f),
+    mobileBreakpoint = 640
+) {
+    SigilPlane(width = 280f, height = 120f, color = 0xEE111820.toInt())
+    SigilText(text = "MANIFEST", size = 18f)
+    SigilFrameStatsText(position = listOf(0f, -28f, 1f))
+}
+```
+
+`ScreenLayoutData` supports nine anchors, inward pixel offsets, scale, and visibility. Desktop and mobile layouts switch without replacing the canvas.
+
+### Audio
+
+`SigilAudio` creates buffered or procedural Materia audio. `SigilSoundBus` configures a named gain bus and can restore its volume from local storage or a cookie.
+
+```kotlin
+SigilSoundBus(bus = "ambience", volume = 0.25f, storageKey = "sound-mode")
+SigilAudio(
+    id = "warehouse-bed",
+    procedural = ProceduralAudioData(noiseGain = 0.3f, oscillatorGain = 0.05f),
+    bus = "ambience",
+    loop = true
+)
+```
+
+Audio begins after browser gesture unlock and automatically suspends while the page is hidden.
+
+### Renderer Configuration
+
+`SceneConfig` accepts an explicit `RendererPreference` and optional `AdaptiveResolutionData`. Adaptive resolution reports smoothed statistics and changes the canvas backing DPR without changing its layout size.
+
+```kotlin
+SceneConfig(
+    rendererPreference = RendererPreference.AUTO,
+    adaptiveResolution = AdaptiveResolutionData(
+        targetFps = 55f,
+        minimumDpr = 0.75f,
+        maximumDpr = 1.25f
+    )
+)
+```
+
+Scene-event bindings may include `optimisticPatch`, `requestKey`, and `suppressWhilePending`. This gives immediate in-canvas feedback and prevents duplicate server requests while the authoritative callback is pending.
+
 ---
 
 ## Client-Side Hydration

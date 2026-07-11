@@ -3,9 +3,12 @@ package codes.yousef.sigil.summon.canvas
 import codes.yousef.sigil.schema.HitVolumeData
 import codes.yousef.sigil.schema.HitVolumeShape
 import codes.yousef.sigil.schema.InteractionMetadata
+import io.materia.camera.Camera
+import io.materia.camera.OrthographicCamera
 import io.materia.camera.PerspectiveCamera
 import io.materia.core.math.Box3
 import io.materia.core.math.Matrix4
+import io.materia.core.math.Quaternion
 import io.materia.core.math.Ray
 import io.materia.core.math.Sphere
 import io.materia.core.math.Vector2
@@ -26,15 +29,24 @@ internal object SigilInteractionPicker {
             interaction.enabled && !interaction.hasExplicitHitVolume()
         }
 
-    fun rayFromCamera(pointer: Vector2, camera: PerspectiveCamera): Ray {
+    fun rayFromCamera(pointer: Vector2, camera: Camera): Ray {
         camera.updateMatrixWorld()
         camera.updateProjectionMatrix()
 
-        val origin = Vector3().setFromMatrixColumn(camera.matrixWorld, 3)
-        val direction = Vector3(pointer.x, pointer.y, 0.5f)
-            .unproject(camera)
-            .sub(origin)
-            .normalize()
+        val origin: Vector3
+        val direction: Vector3
+        if (camera is OrthographicCamera) {
+            origin = Vector3(pointer.x, pointer.y, -1f).unproject(camera)
+            direction = Vector3(0f, 0f, -1f)
+                .applyQuaternion(camera.getWorldQuaternion(Quaternion()))
+                .normalize()
+        } else {
+            origin = Vector3().setFromMatrixColumn(camera.matrixWorld, 3)
+            direction = Vector3(pointer.x, pointer.y, 0.5f)
+                .unproject(camera)
+                .sub(origin)
+                .normalize()
+        }
 
         return Ray(origin, direction)
     }

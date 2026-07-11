@@ -17,12 +17,22 @@ import codes.yousef.sigil.schema.ControlsType
 import codes.yousef.sigil.schema.AnimationEasing
 import codes.yousef.sigil.schema.AnimationKind
 import codes.yousef.sigil.schema.AnimationTrigger
+import codes.yousef.sigil.schema.AudioBusData
+import codes.yousef.sigil.schema.AudioData
+import codes.yousef.sigil.schema.AudioPatch
+import codes.yousef.sigil.schema.AudioPatchAction
+import codes.yousef.sigil.schema.CameraPatch
 import codes.yousef.sigil.schema.CursorHint
+import codes.yousef.sigil.schema.FrameStatsTextData
 import codes.yousef.sigil.schema.GeometryType
 import codes.yousef.sigil.schema.GeometryParams
 import codes.yousef.sigil.schema.HighlightPatch
 import codes.yousef.sigil.schema.InteractionMetadata
 import codes.yousef.sigil.schema.LightType
+import codes.yousef.sigil.schema.ProceduralAudioData
+import codes.yousef.sigil.schema.ProceduralWaveform
+import codes.yousef.sigil.schema.RendererPreference
+import codes.yousef.sigil.schema.ScreenLayerData
 import codes.yousef.sigil.schema.SceneAnimationData
 import codes.yousef.sigil.schema.SceneNodePatch
 import codes.yousef.sigil.schema.ScenePatch
@@ -44,6 +54,14 @@ import io.materia.material.Material as BaseMaterial
 import io.materia.material.MeshBasicMaterial
 import io.materia.material.MeshStandardMaterial
 import io.materia.material.Side
+import io.materia.audio.Audio as MateriaAudio
+import io.materia.audio.AudioListener
+import io.materia.audio.AudioWaveform
+import io.materia.audio.BrowserAudioEngine
+import io.materia.audio.PositionalAudio
+import io.materia.audio.ProceduralAudioSpec
+import io.materia.camera.Camera
+import io.materia.camera.OrthographicCamera
 import io.materia.camera.PerspectiveCamera
 import io.materia.controls.ControlsConfig
 import io.materia.controls.FirstPersonControls
@@ -77,12 +95,19 @@ import io.materia.lighting.HemisphereLightImpl
 import io.materia.lighting.Light
 import io.materia.lighting.DefaultLightingSystem
 import io.materia.renderer.Renderer
+import io.materia.renderer.OverlayFirstPicker
+import io.materia.renderer.RenderOverlayLayer
 import io.materia.renderer.TextureFilter
+import io.materia.renderer.renderWithOverlays
 import io.materia.renderer.webgpu.WebGPURenderer
 import io.materia.renderer.webgl.WebGLRenderer
 import io.materia.renderer.RendererConfig
 import io.materia.texture.Texture
 import io.materia.texture.Texture2D
+import io.materia.performance.AdaptiveResolutionConfig
+import io.materia.performance.AdaptiveResolutionController
+import io.materia.performance.FrameStatsSmoother
+import io.materia.performance.SmoothedFrameStats
 import kotlinx.browser.document
 import kotlinx.browser.window
 import kotlinx.coroutines.await
@@ -100,6 +125,7 @@ import org.w3c.dom.events.WheelEvent
 import kotlin.js.ExperimentalJsExport
 import kotlin.math.PI
 import kotlin.math.pow
+import kotlin.math.roundToInt
 import kotlin.math.sin
 
 private val scope = MainScope()
@@ -107,6 +133,7 @@ private const val SIGIL_GLTF_CACHE_SCOPE = "codes.yousef.sigil.gltf"
 private const val SIGIL_MODEL_DATA_KEY = "sigilModelData"
 private const val SIGIL_MODEL_LOAD_STATE_KEY = "sigilModelLoadState"
 private const val SIGIL_TEXT_DATA_KEY = "sigilTextData"
+private const val SIGIL_TEXT_GENERATION_KEY = "sigilTextGeneration"
 private const val SIGIL_HIGHLIGHT_PATCH_KEY = "sigilHighlightPatch"
 
 private data class ActiveSceneAnimation(
@@ -138,6 +165,30 @@ private data class PendingDrag(
 private data class DropEvaluation(
     val accepted: Boolean,
     val result: String
+)
+
+private data class RuntimeScreenLayer(
+    val data: ScreenLayerData,
+    val scene: Scene,
+    val camera: OrthographicCamera,
+    val root: Group
+)
+
+private data class RuntimeFrameStatsText(
+    val data: FrameStatsTextData,
+    val node: Group,
+    var lastText: String = "",
+    var lastUpdateMs: Double = 0.0
+)
+
+private data class ActiveCameraPatch(
+    val startedAtMs: Double,
+    val durationMs: Int,
+    val startPosition: Vector3,
+    val startTarget: Vector3,
+    val endPosition: Vector3,
+    val endTarget: Vector3,
+    val easing: AnimationEasing
 )
 
 private class SigilRelativeAssetResolver(
@@ -207,35 +258,70 @@ class SigilHydrator(
     private var hoverDropTarget: Object3D? = null
     private val activeAnimations = mutableListOf<ActiveSceneAnimation>()
     private val billboardTextNodes = mutableListOf<Object3D>()
+    private val screenLayers = mutableListOf<RuntimeScreenLayer>()
+    private val overlayRenderLayers = mutableListOf<RenderOverlayLayer>()
+    private val frameStatsTextNodes = mutableListOf<RuntimeFrameStatsText>()
+    private val overlayFirstPicker = OverlayFirstPicker()
+    private val requestGate = SigilRequestGate()
+    private val modelSwapTracker = SigilModelSwapTracker()
+    private val persistence = SigilPersistenceRuntime.browser()
+    private val audioSources = mutableMapOf<String, MateriaAudio>()
+    private val audioBuses = mutableMapOf<String, AudioBusData>()
+    private var audioListener: AudioListener? = null
+    private var activeCameraPatch: ActiveCameraPatch? = null
     private val baseColorTextureMetadataCache = mutableMapOf<String, List<GltfBaseColorTexture>>()
     private val pendingBaseColorHydrations = mutableMapOf<String, CompletableDeferred<Unit>>()
+    private val frameStatsSmoother = FrameStatsSmoother(
+        sceneData.settings.adaptiveResolution?.sampleWindow ?: 60
+    )
+    private val adaptiveResolutionController = sceneData.settings.adaptiveResolution
+        ?.takeIf { it.enabled }
+        ?.let { data ->
+            AdaptiveResolutionController(
+                config = AdaptiveResolutionConfig(
+                    targetFps = data.targetFps.toDouble(),
+                    minimumScale = data.minimumDpr,
+                    maximumScale = data.maximumDpr,
+                    scaleStep = data.scaleStep
+                ),
+                initialScale = window.devicePixelRatio.toFloat().coerceIn(data.minimumDpr, data.maximumDpr)
+            )
+        }
+    private var renderScale = adaptiveResolutionController?.scale ?: 1f
     private var lastFrameTimeMs: Double = 0.0
+    private var lastAdaptiveResolutionCheckMs: Double = 0.0
     private var rendererCanvasMayNeedReplacement = false
 
     suspend fun initialize() {
-        // Configure scene from settings
         applySceneSettings(sceneData.settings)
 
-        // Create camera
+        val initialSize = displaySize()
         camera = PerspectiveCamera(
             fov = 75f,
-            aspect = canvas.width.toFloat() / canvas.height.toFloat(),
+            aspect = initialSize.first.toFloat() / initialSize.second.toFloat(),
             near = 0.1f,
             far = 1000f
         ).apply {
             position.set(0f, 2f, 5f)
             lookAt(Vector3.ZERO)
         }
+        audioListener = AudioListener(camera)
+        BrowserAudioEngine.unlockOnFirstGesture()
+        BrowserAudioEngine.installVisibilityHandling()
 
-        // Hydrate scene nodes
         for (nodeData in sceneData.rootNodes) {
-            val materiaNode = createMateriaNode(nodeData)
-            if (materiaNode != null) {
-                materiaScene.add(materiaNode)
-                registerNode(nodeData, materiaNode)
+            if (nodeData is ScreenLayerData) {
+                createScreenLayer(nodeData)
+            } else {
+                val materiaNode = createMateriaNode(nodeData)
+                if (materiaNode != null) {
+                    materiaScene.add(materiaNode)
+                    registerNode(nodeData, materiaNode)
+                }
             }
         }
         materiaScene.updateMatrixWorld(true)
+        resizeForDisplay()
 
         val initialized = initializeRenderer(RendererConfig())
 
@@ -247,18 +333,8 @@ class SigilHydrator(
         interactionCleanup = attachInteractionHandlers()
         triggerAnimations(AnimationTrigger.SCENE_LOAD)
 
-        // Handle resize
         window.onresize = {
-            val rect = canvas.parentElement?.getBoundingClientRect()
-            if (rect != null) {
-                canvas.width = rect.width.toInt()
-                canvas.height = rect.height.toInt()
-                renderer?.resize(canvas.width, canvas.height)
-                camera?.let { c ->
-                    c.aspect = canvas.width.toFloat() / canvas.height.toFloat()
-                    c.updateProjectionMatrix()
-                }
-            }
+            resizeForDisplay()
             Unit
         }
     }
@@ -392,8 +468,15 @@ class SigilHydrator(
         if (!legacyOverride.isNullOrBlank()) return legacyOverride
 
         val params = js("new URLSearchParams(window.location.search)").unsafeCast<dynamic>()
-        return (params.get("sigilRenderer") as? String)
+        val queryOverride = (params.get("sigilRenderer") as? String)
             ?: (params.get("renderer") as? String)
+        if (!queryOverride.isNullOrBlank()) return queryOverride
+
+        return when (sceneData.settings.rendererPreference) {
+            RendererPreference.AUTO -> null
+            RendererPreference.WEBGL -> "webgl"
+            RendererPreference.WEBGPU -> "webgpu"
+        }
     }
 
     private fun replaceCanvasForRendererFallback() {
@@ -435,19 +518,21 @@ class SigilHydrator(
             if (!running) return
 
             val now = window.performance.now()
-            val deltaSeconds = ((now - lastFrameTimeMs) / 1000.0).toFloat()
+            val deltaSeconds = ((now - lastFrameTimeMs) / 1000.0).toFloat().coerceIn(0f, 0.1f)
             lastFrameTimeMs = now
 
-            orbitControls?.update(deltaSeconds)
+            val cameraPatchActive = updateGuidedCamera(now)
+            if (!cameraPatchActive) orbitControls?.update(deltaSeconds)
             firstPersonControls?.update(deltaSeconds)
             updateSceneAnimations(now)
             updateBillboardTextNodes()
+            audioListener?.updateMatrixWorld()
 
             val r = renderer ?: return
             cam.updateMatrixWorld()
             cam.updateProjectionMatrix()
             try {
-                r.render(materiaScene, cam)
+                r.renderWithOverlays(materiaScene, cam, renderOverlayLayers())
             } catch (t: Throwable) {
                 console.warn("Sigil: Render error (${t.message})")
                 if (r is WebGPURenderer) {
@@ -459,6 +544,10 @@ class SigilHydrator(
                 }
                 return
             }
+
+            val smoothedStats = frameStatsSmoother.recordFrame(deltaSeconds, r.stats)
+            updateFrameStatsText(now, smoothedStats)
+            updateAdaptiveResolution(now, smoothedStats)
 
             animationFrameId = window.requestAnimationFrame { renderFrame() }
         }
@@ -497,6 +586,14 @@ class SigilHydrator(
         }
     }
 
+    internal fun screenLayerCountForTesting(): Int = screenLayers.size
+
+    internal fun renderScaleForTesting(): Float = renderScale
+
+    internal fun hydratedTextMeshCountForTesting(): Int = nodeMap.values.count { node ->
+        node is Group && node.userData[SIGIL_TEXT_DATA_KEY] is TextData && node.children.isNotEmpty()
+    }
+
     fun dispose() {
         stop()
         controlsCleanup?.invoke()
@@ -512,6 +609,18 @@ class SigilHydrator(
         pendingBaseColorHydrations.clear()
         activeAnimations.clear()
         billboardTextNodes.clear()
+        frameStatsTextNodes.forEach { disposeTextChildren(it.node) }
+        frameStatsTextNodes.clear()
+        screenLayers.clear()
+        overlayRenderLayers.clear()
+        audioSources.values.forEach { it.stop() }
+        audioSources.clear()
+        audioBuses.clear()
+        audioListener = null
+        activeCameraPatch = null
+        requestGate.clear()
+        modelSwapTracker.clear()
+        frameStatsSmoother.reset()
         pendingDrag = null
         activeDrag = null
         dragGesture.reset()
@@ -523,11 +632,99 @@ class SigilHydrator(
         materiaScene.background = Background.Color(intToColor(settings.backgroundColor))
     }
 
+    private fun displaySize(): Pair<Int, Int> {
+        val rect = (canvas.parentElement ?: canvas).getBoundingClientRect()
+        val width = rect.width.roundToInt().takeIf { it > 0 }
+            ?: canvas.clientWidth.takeIf { it > 0 }
+            ?: (canvas.width / renderScale).roundToInt().coerceAtLeast(1)
+        val height = rect.height.roundToInt().takeIf { it > 0 }
+            ?: canvas.clientHeight.takeIf { it > 0 }
+            ?: (canvas.height / renderScale).roundToInt().coerceAtLeast(1)
+        return width to height
+    }
+
+    private fun resizeForDisplay() {
+        val (displayWidth, displayHeight) = displaySize()
+        val renderWidth = (displayWidth * renderScale).roundToInt().coerceAtLeast(1)
+        val renderHeight = (displayHeight * renderScale).roundToInt().coerceAtLeast(1)
+        if (canvas.width != renderWidth) canvas.width = renderWidth
+        if (canvas.height != renderHeight) canvas.height = renderHeight
+        renderer?.resize(renderWidth, renderHeight)
+
+        camera?.let { worldCamera ->
+            worldCamera.aspect = displayWidth.toFloat() / displayHeight.toFloat()
+            worldCamera.updateProjectionMatrix()
+        }
+        updateScreenLayers(displayWidth, displayHeight)
+    }
+
+    private fun createScreenLayer(data: ScreenLayerData) {
+        val overlayScene = Scene()
+        val overlayCamera = OrthographicCamera(near = 0.1f, far = 2000f).apply {
+            position.set(0f, 0f, 1000f)
+            lookAt(Vector3.ZERO)
+        }
+        val root = Group().apply {
+            rotation.set(data.rotation[0], data.rotation[1], data.rotation[2])
+            name = data.name ?: ""
+        }
+        data.children.forEach { childData ->
+            createMateriaNode(childData)?.let { child ->
+                root.add(child)
+                registerNode(childData, child)
+            }
+        }
+        overlayScene.add(root)
+        registerNode(data, root)
+        screenLayers += RuntimeScreenLayer(data, overlayScene, overlayCamera, root)
+        screenLayers.sortBy { it.data.order }
+        overlayRenderLayers.clear()
+        screenLayers.forEach { layer ->
+            overlayRenderLayers += RenderOverlayLayer(
+                layer.scene,
+                layer.camera,
+                clearDepth = layer.data.clearDepth
+            )
+        }
+        val (width, height) = displaySize()
+        updateScreenLayers(width, height)
+    }
+
+    private fun updateScreenLayers(displayWidth: Int, displayHeight: Int) {
+        screenLayers.forEach { layer ->
+            layer.camera.setViewBounds(
+                left = -displayWidth / 2f,
+                right = displayWidth / 2f,
+                top = displayHeight / 2f,
+                bottom = -displayHeight / 2f
+            )
+            val placement = SigilScreenLayoutResolver.resolve(layer.data, displayWidth, displayHeight)
+            layer.root.position.set(
+                placement.x,
+                placement.y,
+                layer.data.position.getOrElse(2) { 0f }
+            )
+            layer.root.scale.set(
+                layer.data.scale.getOrElse(0) { 1f } * placement.scale,
+                layer.data.scale.getOrElse(1) { 1f } * placement.scale,
+                layer.data.scale.getOrElse(2) { 1f } * placement.scale
+            )
+            layer.root.visible = placement.visible
+            layer.scene.updateMatrixWorld(true)
+        }
+    }
+
+    private fun renderOverlayLayers(): List<RenderOverlayLayer> = overlayRenderLayers
+
     private fun createMateriaNode(nodeData: SigilNodeData): Object3D? {
         return when (nodeData) {
             is MeshData -> createMesh(nodeData)
             is ModelData -> createModel(nodeData)
             is TextData -> createText(nodeData)
+            is FrameStatsTextData -> createFrameStatsText(nodeData)
+            is AudioData -> createAudio(nodeData)
+            is AudioBusData -> createAudioBus(nodeData)
+            is ScreenLayerData -> null
             is GroupData -> createGroup(nodeData)
             is LightData -> {
                 // Lights in Materia 0.2.0.0 don't extend Object3D
@@ -591,6 +788,7 @@ class SigilHydrator(
             userData[SIGIL_MODEL_LOAD_STATE_KEY] = SigilModelLoadState()
         }
 
+        preloadModelUrls(data)
         ensureModelHydratedForVisibility(group, data)
 
         return group
@@ -602,12 +800,7 @@ class SigilHydrator(
 
         scope.launch {
             try {
-                val assetResolver = SigilRelativeAssetResolver(data.url)
-                val asset = GLTFLoader(assetResolver).load(data.url)
-                val root = asset.scene
-                hydrateGltfBaseColorTextures(asset.materials, data.url, assetResolver)
-                SigilModelMaterialIsolation.isolateMutableMaterials(root)
-                applyModelSettings(root, data)
+                val root = loadModelRoot(data)
                 group.clear()
                 group.add(root)
                 replayDeferredVisualState(group)
@@ -619,6 +812,30 @@ class SigilHydrator(
             } finally {
                 loadState.complete()
             }
+        }
+    }
+
+    private fun preloadModelUrls(data: ModelData) {
+        data.preloadUrls.distinct().filter { it != data.url }.forEach { url ->
+            scope.launch {
+                try {
+                    val resolver = SigilRelativeAssetResolver(url)
+                    val asset = GLTFLoader(resolver).load(url)
+                    hydrateGltfBaseColorTextures(asset.materials, url, resolver)
+                } catch (t: Throwable) {
+                    console.warn("Sigil: Could not preload model $url: ${t.message}")
+                }
+            }
+        }
+    }
+
+    private suspend fun loadModelRoot(data: ModelData): Object3D {
+        val assetResolver = SigilRelativeAssetResolver(data.url)
+        val asset = GLTFLoader(assetResolver).load(data.url)
+        hydrateGltfBaseColorTextures(asset.materials, data.url, assetResolver)
+        return asset.scene.also { root ->
+            SigilModelMaterialIsolation.isolateMutableMaterials(root)
+            applyModelSettings(root, data)
         }
     }
 
@@ -646,6 +863,9 @@ class SigilHydrator(
                     enableKeys = data.enableKeys,
                     enableDamping = data.enableDamping,
                     dampingFactor = data.dampingFactor,
+                    dampingTime = data.dampingTime,
+                    settleEpsilon = data.settleEpsilon,
+                    maxDeltaTime = data.maxDeltaTime,
                     autoRotate = data.autoRotate,
                     autoRotateSpeed = data.autoRotateSpeed
                 )
@@ -705,6 +925,66 @@ class SigilHydrator(
         return group
     }
 
+    private fun createAudio(data: AudioData): MateriaAudio {
+        val listener = audioListener ?: AudioListener(camera).also { audioListener = it }
+        val source: MateriaAudio = if (data.positional) {
+            PositionalAudio(listener).apply {
+                refDistance = data.refDistance
+                maxDistance = data.maxDistance
+                rolloffFactor = data.rolloffFactor
+            }
+        } else {
+            MateriaAudio(listener)
+        }
+
+        source.position.set(data.position[0], data.position[1], data.position[2])
+        source.rotation.set(data.rotation[0], data.rotation[1], data.rotation[2])
+        source.scale.set(data.scale[0], data.scale[1], data.scale[2])
+        source.visible = data.visible
+        source.name = data.name ?: ""
+        source.setBus(data.bus)
+        source.setVolume(data.volume)
+        source.setLoop(data.loop)
+        source.autoplay = data.autoplay && data.visible
+
+        data.procedural?.let { source.setProcedural(it.toMateriaSpec()) }
+            ?: data.url?.let(source::load)
+        if (data.procedural != null && source.autoplay) source.play()
+        audioSources[data.id] = source
+        return source
+    }
+
+    private fun ProceduralAudioData.toMateriaSpec(): ProceduralAudioSpec = ProceduralAudioSpec(
+        waveform = when (waveform) {
+            ProceduralWaveform.SINE -> AudioWaveform.SINE
+            ProceduralWaveform.SQUARE -> AudioWaveform.SQUARE
+            ProceduralWaveform.SAWTOOTH -> AudioWaveform.SAWTOOTH
+            ProceduralWaveform.TRIANGLE -> AudioWaveform.TRIANGLE
+        },
+        startFrequencyHz = startFrequencyHz,
+        endFrequencyHz = endFrequencyHz,
+        durationSeconds = durationSeconds,
+        attackSeconds = attackSeconds,
+        releaseSeconds = releaseSeconds,
+        oscillatorGain = oscillatorGain,
+        noiseGain = noiseGain,
+        lowPassFrequencyHz = lowPassFrequencyHz
+    )
+
+    private fun createAudioBus(data: AudioBusData): Group {
+        val storedVolume = data.storageKey
+            ?.let { persistence.read(it, data.storageBackend) }
+            ?.toFloatOrNull()
+            ?.takeIf { it in 0f..1f }
+        BrowserAudioEngine.setBusVolume(data.bus, storedVolume ?: data.volume)
+        audioBuses[data.bus] = data
+        return Group().apply {
+            visible = false
+            name = data.name ?: "audio-bus-${data.bus}"
+            userData["sigilAudioBus"] = data.bus
+        }
+    }
+
     private fun createText(data: TextData): Group {
         val group = Group().apply {
             position.set(data.position[0], data.position[1], data.position[2])
@@ -724,7 +1004,36 @@ class SigilHydrator(
         return group
     }
 
+    private fun createFrameStatsText(data: FrameStatsTextData): Group {
+        val textData = TextData(
+            id = data.id,
+            position = data.position,
+            rotation = data.rotation,
+            scale = data.scale,
+            visible = data.visible,
+            name = data.name,
+            interaction = data.interaction,
+            animations = data.animations,
+            text = data.prefix + "--",
+            color = data.color,
+            size = data.size,
+            depth = data.depth,
+            curveSegments = 4,
+            align = data.align,
+            baseline = data.baseline,
+            fontUrl = data.fontUrl,
+            castShadow = false,
+            receiveShadow = false
+        )
+        val group = createText(textData)
+        frameStatsTextNodes += RuntimeFrameStatsText(data = data, node = group)
+        return group
+    }
+
     private fun hydrateTextMesh(group: Group, data: TextData) {
+        val generation = ((group.userData[SIGIL_TEXT_GENERATION_KEY] as? Int) ?: 0) + 1
+        group.userData[SIGIL_TEXT_GENERATION_KEY] = generation
+        group.userData[SIGIL_TEXT_DATA_KEY] = data
         scope.launch {
             try {
                 val font = SigilTextFontCache.load(data.fontUrl)
@@ -739,12 +1048,37 @@ class SigilHydrator(
                     name = data.name?.let { "$it-text-mesh" } ?: ""
                 }
 
+                if (group.userData[SIGIL_TEXT_GENERATION_KEY] != generation) {
+                    geometry.dispose()
+                    material.dispose()
+                    return@launch
+                }
+                disposeTextChildren(group)
                 group.clear()
                 group.add(mesh)
                 replayDeferredVisualState(group)
             } catch (t: Throwable) {
                 console.error("Sigil: Failed to hydrate text ${data.id}: ${t.message}")
             }
+        }
+    }
+
+    private fun updateTextNode(group: Group, text: String) {
+        if (text.isBlank()) return
+        val current = group.userData[SIGIL_TEXT_DATA_KEY] as? TextData ?: return
+        if (current.text == text) return
+        val updated = current.copy(text = text)
+        hydrateTextMesh(group, updated)
+
+        val nodeId = group.userData["sigilNodeId"] as? String ?: return
+        if (nodeDataMap[nodeId] is TextData) nodeDataMap[nodeId] = updated
+    }
+
+    private fun disposeTextChildren(group: Group) {
+        group.children.toList().forEach { child ->
+            val mesh = child as? Mesh ?: return@forEach
+            mesh.geometry.dispose()
+            (mesh.material as? BaseMaterial)?.dispose()
         }
     }
 
@@ -788,6 +1122,29 @@ class SigilHydrator(
         }
     }
 
+    private fun updateFrameStatsText(now: Double, stats: SmoothedFrameStats) {
+        frameStatsTextNodes.forEach { runtime ->
+            if (now - runtime.lastUpdateMs < runtime.data.updateIntervalMs) return@forEach
+            runtime.lastUpdateMs = now
+            val fps = stats.fps.asDynamic().toFixed(runtime.data.decimalPlaces) as String
+            val text = runtime.data.prefix + fps
+            if (text != runtime.lastText) {
+                runtime.lastText = text
+                updateTextNode(runtime.node, text)
+            }
+        }
+    }
+
+    private fun updateAdaptiveResolution(now: Double, stats: SmoothedFrameStats) {
+        val controller = adaptiveResolutionController ?: return
+        if (now - lastAdaptiveResolutionCheckMs < 500.0) return
+        lastAdaptiveResolutionCheckMs = now
+        controller.record(stats.fps)?.let { nextScale ->
+            renderScale = nextScale
+            resizeForDisplay()
+        }
+    }
+
     private fun applyModelSettings(root: Object3D, data: ModelData) {
         root.traverse { node ->
             val mesh = node as? Mesh ?: return@traverse
@@ -800,9 +1157,12 @@ class SigilHydrator(
     }
 
     private fun configureSceneTextureFidelity() {
-        materiaScene.traverse { node ->
-            val mesh = node as? Mesh ?: return@traverse
-            SigilTextureFidelity.configureMaterial(mesh.material)
+        val scenes = listOf(materiaScene) + screenLayers.map { it.scene }
+        scenes.forEach { scene ->
+            scene.traverse { node ->
+                val mesh = node as? Mesh ?: return@traverse
+                SigilTextureFidelity.configureMaterial(mesh.material)
+            }
         }
     }
 
@@ -881,6 +1241,10 @@ class SigilHydrator(
     }
 
     fun applyPatch(patch: ScenePatch) {
+        patch.camera?.let(::applyCameraPatch)
+        patch.audio.forEach(::applyAudioPatch)
+        patch.storage.forEach(persistence::apply)
+
         for (nodePatch in patch.nodes) {
             val node = findPatchTarget(nodePatch) ?: continue
             if (applyNodePatch(node, nodePatch)) {
@@ -924,12 +1288,142 @@ class SigilHydrator(
             node.visible = it
             if (it) {
                 ensureDeferredModelHydrated(node)
+            } else {
+                (node as? MateriaAudio)?.stop()
             }
         }
         patch.name?.let { node.name = it }
-        patch.label?.let { node.userData["sigilLabel"] = it }
+        val updatedText = patch.text ?: patch.label
+        if (updatedText != null && node is Group && node.userData[SIGIL_TEXT_DATA_KEY] is TextData) {
+            updateTextNode(node, updatedText)
+        } else {
+            patch.label?.let { node.userData["sigilLabel"] = it }
+        }
+        patch.modelUrl?.takeIf(String::isNotBlank)?.let { url ->
+            (node as? Group)?.let { replaceModelAtomically(it, url) }
+        }
+        patch.interactionEnabled?.let { enabled -> setInteractionEnabled(node, enabled) }
         patch.highlight?.let { applyHighlightPatch(node, it) }
         return transformChanged
+    }
+
+    private fun applyCameraPatch(patch: CameraPatch) {
+        val cam = camera ?: return
+        val endPosition = patch.position.toVector3()
+        val targetValues = patch.orbitTarget ?: patch.lookAt
+        val endTarget = targetValues?.toVector3() ?: orbitControls?.target?.clone() ?: Vector3.ZERO.clone()
+        val controls = orbitControls
+        if (patch.cancelMomentum) {
+            controls?.cancelAnimation()
+            controls?.cancelMomentum()
+        }
+
+        if (patch.durationMs == 0) {
+            activeCameraPatch = null
+            if (controls != null) {
+                controls.setPose(endPosition, endTarget)
+            } else {
+                cam.position.copy(endPosition)
+                cam.lookAt(endTarget)
+                cam.updateMatrixWorld(true)
+            }
+            return
+        }
+
+        activeCameraPatch = ActiveCameraPatch(
+            startedAtMs = window.performance.now(),
+            durationMs = patch.durationMs,
+            startPosition = cam.position.clone(),
+            startTarget = controls?.target?.clone() ?: patch.lookAt?.toVector3() ?: Vector3.ZERO.clone(),
+            endPosition = endPosition,
+            endTarget = endTarget,
+            easing = patch.easing
+        )
+    }
+
+    private fun updateGuidedCamera(now: Double): Boolean {
+        val active = activeCameraPatch ?: return false
+        val progress = ((now - active.startedAtMs) / active.durationMs).toFloat().coerceIn(0f, 1f)
+        val eased = easedProgress(progress, active.easing)
+        val position = Vector3().lerpVectors(active.startPosition, active.endPosition, eased)
+        val target = Vector3().lerpVectors(active.startTarget, active.endTarget, eased)
+        val controls = orbitControls
+        if (controls != null) {
+            controls.setPose(position, target)
+        } else {
+            camera?.apply {
+                this.position.copy(position)
+                lookAt(target)
+                updateMatrixWorld(true)
+            }
+        }
+
+        if (progress >= 1f) activeCameraPatch = null
+        return progress < 1f
+    }
+
+    private fun applyAudioPatch(patch: AudioPatch) {
+        if (patch.action == AudioPatchAction.UNLOCK) {
+            scope.launch { BrowserAudioEngine.resume() }
+            return
+        }
+
+        patch.sourceId?.let(audioSources::get)?.let { source ->
+            patch.volume?.let(source::setVolume)
+            patch.loop?.let(source::setLoop)
+            when (patch.action) {
+                AudioPatchAction.PLAY -> source.play()
+                AudioPatchAction.PAUSE -> source.pause()
+                AudioPatchAction.STOP -> source.stop()
+                AudioPatchAction.SET_VOLUME, AudioPatchAction.SET_LOOP, AudioPatchAction.UNLOCK -> Unit
+            }
+        }
+
+        val bus = patch.bus ?: return
+        patch.volume?.let { volume ->
+            BrowserAudioEngine.setBusVolume(bus, volume)
+            if (patch.persist) {
+                audioBuses[bus]?.storageKey?.let { key ->
+                    persistence.apply(
+                        codes.yousef.sigil.schema.StoragePatch(
+                            action = codes.yousef.sigil.schema.StoragePatchAction.SET,
+                            key = key,
+                            value = volume.toString(),
+                            backend = audioBuses[bus]?.storageBackend
+                                ?: codes.yousef.sigil.schema.StorageBackend.LOCAL_STORAGE
+                        )
+                    )
+                }
+            }
+        }
+    }
+
+    private fun setInteractionEnabled(node: Object3D, enabled: Boolean) {
+        val current = interactionForNode(node) ?: return
+        node.userData["sigilInteraction"] = current.copy(enabled = enabled)
+    }
+
+    private fun replaceModelAtomically(group: Group, modelUrl: String) {
+        val current = group.userData[SIGIL_MODEL_DATA_KEY] as? ModelData ?: return
+        if (current.url == modelUrl) return
+        val nodeId = group.userData["sigilNodeId"] as? String ?: current.id
+        val replacement = current.copy(url = modelUrl)
+        val generation = modelSwapTracker.begin(nodeId)
+
+        scope.launch {
+            try {
+                val root = loadModelRoot(replacement)
+                if (!modelSwapTracker.isCurrent(nodeId, generation)) return@launch
+                group.clear()
+                group.add(root)
+                group.userData[SIGIL_MODEL_DATA_KEY] = replacement
+                nodeDataMap[nodeId] = replacement
+                replayDeferredVisualState(group)
+                refreshNodeWorldMatrix(group)
+            } catch (t: Throwable) {
+                console.error("Sigil: Model replacement kept previous asset after $modelUrl failed: ${t.message}")
+            }
+        }
     }
 
     private fun ensureDeferredModelHydrated(node: Object3D) {
@@ -1115,7 +1609,7 @@ class SigilHydrator(
     }
 
     private fun attachInteractionHandlers(): () -> Unit {
-        val hasInteractiveNodes = nodeDataMap.values.any { it.interaction?.enabled == true }
+        val hasInteractiveNodes = nodeDataMap.values.any { it.interaction != null }
         if (!hasInteractiveNodes) return {}
 
         canvas.style.setProperty("touch-action", "none")
@@ -1313,10 +1807,28 @@ class SigilHydrator(
         event: MouseEvent,
         acceptCandidate: (Object3D) -> Boolean = { true }
     ): SigilInteractionHit? {
-        val ray = rayForEvent(event) ?: return null
-        val hitVolumeHits = hitVolumeHits(ray)
-        val hits = if (shouldRunMeshRaycaster(acceptCandidate)) {
-            hitVolumeHits + meshRaycasterHits(ray)
+        val worldCamera = camera ?: return null
+        val pointer = normalizedPointer(event)
+        return overlayFirstPicker.pick(
+            normalizedPointer = pointer,
+            scene = materiaScene,
+            camera = worldCamera,
+            overlays = renderOverlayLayers()
+        ) { scene, sceneCamera, normalizedPointer ->
+            pickInteractionHitInScene(normalizedPointer, scene, sceneCamera, acceptCandidate)
+        }?.value
+    }
+
+    private fun pickInteractionHitInScene(
+        pointer: Vector2,
+        scene: Scene,
+        sceneCamera: Camera,
+        acceptCandidate: (Object3D) -> Boolean
+    ): SigilInteractionHit? {
+        val ray = SigilInteractionPicker.rayFromCamera(pointer, sceneCamera)
+        val hitVolumeHits = hitVolumeHits(ray, scene)
+        val hits = if (shouldRunMeshRaycaster(scene, acceptCandidate)) {
+            hitVolumeHits + meshRaycasterHits(ray, scene)
         } else {
             hitVolumeHits
         }
@@ -1326,8 +1838,12 @@ class SigilHydrator(
             .firstOrNull { acceptCandidate(it.node) }
     }
 
-    private fun shouldRunMeshRaycaster(acceptCandidate: (Object3D) -> Boolean): Boolean {
+    private fun shouldRunMeshRaycaster(
+        scene: Scene,
+        acceptCandidate: (Object3D) -> Boolean
+    ): Boolean {
         val acceptedInteractions = nodeMap.values.mapNotNull { node ->
+            if (!node.belongsToScene(scene)) return@mapNotNull null
             if (!node.isVisibleInHierarchy()) return@mapNotNull null
             if (!acceptCandidate(node)) return@mapNotNull null
             interactionForNode(node)?.takeIf { it.enabled }
@@ -1342,10 +1858,11 @@ class SigilHydrator(
         return SigilInteractionPicker.rayFromCamera(pointer, cam)
     }
 
-    private fun hitVolumeHits(ray: Ray): List<SigilInteractionHit> {
+    private fun hitVolumeHits(ray: Ray, scene: Scene): List<SigilInteractionHit> {
         val hits = mutableListOf<SigilInteractionHit>()
 
         nodeMap.values.forEach { node ->
+            if (!node.belongsToScene(scene)) return@forEach
             if (!node.isVisibleInHierarchy()) return@forEach
             val interaction = interactionForNode(node) ?: return@forEach
             if (!interaction.enabled || interaction.hitVolume == null) return@forEach
@@ -1358,10 +1875,10 @@ class SigilHydrator(
         return hits
     }
 
-    private fun meshRaycasterHits(ray: Ray): List<SigilInteractionHit> {
+    private fun meshRaycasterHits(ray: Ray, scene: Scene): List<SigilInteractionHit> {
         raycaster.ray.origin.copy(ray.origin)
         raycaster.ray.direction.copy(ray.direction)
-        val intersections = raycaster.intersectObject(materiaScene, true)
+        val intersections = raycaster.intersectObject(scene, true)
         val hits = mutableListOf<SigilInteractionHit>()
 
         for (intersection in intersections) {
@@ -1371,6 +1888,15 @@ class SigilHydrator(
         }
 
         return hits
+    }
+
+    private fun Object3D.belongsToScene(scene: Scene): Boolean {
+        var current: Object3D? = this
+        while (current != null) {
+            if (current === scene) return true
+            current = current.parent
+        }
+        return false
     }
 
     private fun normalizedPointer(event: MouseEvent): Vector2 {
@@ -1632,6 +2158,11 @@ class SigilHydrator(
     }
 
     private fun invokeSceneEventBinding(binding: SigilSceneEventBinding, payload: SigilSceneEventPayload) {
+        val requestKey = binding.requestKey ?: binding.callbackId?.let { "callback:$it" }
+        if (!requestGate.tryAcquire(requestKey, binding.suppressWhilePending)) return
+        binding.optimisticPatch?.let(::applyPatch)
+        var waitsForCallback = false
+
         binding.localHandlerId
             ?.let(localSceneEventHandlers::get)
             ?.let { handler ->
@@ -1643,15 +2174,32 @@ class SigilHydrator(
             }
 
         binding.callbackId?.let { callbackId ->
-            postSummonCallback(callbackId, binding.callbackUrl, binding.reloadOnSuccess)
+            waitsForCallback = true
+            postSummonCallback(callbackId, binding.callbackUrl, binding.reloadOnSuccess) {
+                requestGate.release(requestKey)
+            }
         }
 
         binding.url?.let { url ->
             window.location.href = expandSceneEventUrl(url, payload)
         }
+
+        if (!waitsForCallback) requestGate.release(requestKey)
     }
 
-    private fun postSummonCallback(callbackId: String, callbackUrl: String?, reloadOnSuccess: Boolean?) {
+    private fun postSummonCallback(
+        callbackId: String,
+        callbackUrl: String?,
+        reloadOnSuccess: Boolean?,
+        onComplete: () -> Unit
+    ) {
+        var completed = false
+        fun completeOnce() {
+            if (!completed) {
+                completed = true
+                onComplete()
+            }
+        }
         val options = js("{}")
         options.method = "POST"
         val headers = js("{}")
@@ -1672,17 +2220,20 @@ class SigilHydrator(
                         ) {
                             window.location.reload()
                         }
+                        completeOnce()
                         null
                     })
                     .catch({ _: dynamic ->
                         if (reloadOnSuccess == true) {
                             window.location.reload()
                         }
+                        completeOnce()
                         null
                     })
             })
             .catch({ error: dynamic ->
                 console.error("Sigil: Summon scene callback failed:", error)
+                completeOnce()
                 null
             })
     }
@@ -2010,6 +2561,7 @@ class SigilHydrator(
 
         val mouseDown: (Event) -> Unit = mouseDown@{ event ->
             val mouseEvent = event as? MouseEvent ?: return@mouseDown
+            activeCameraPatch = null
             val button = toPointerButton(mouseEvent.button)
             val (x, y) = pointerPosition(mouseEvent)
             activeButton = button
@@ -2036,6 +2588,7 @@ class SigilHydrator(
 
         val wheelHandler: (Event) -> Unit = wheelHandler@{ event ->
             val wheelEvent = event as? WheelEvent ?: return@wheelHandler
+            activeCameraPatch = null
             controls.onWheel(wheelEvent.deltaX.toFloat(), wheelEvent.deltaY.toFloat())
             wheelEvent.preventDefault()
         }
@@ -2048,6 +2601,7 @@ class SigilHydrator(
         val keyDown: (Event) -> Unit = keyDown@{ event ->
             val keyEvent = event as? KeyboardEvent ?: return@keyDown
             toControlsKey(keyEvent.key)?.let { key ->
+                activeCameraPatch = null
                 controls.onKeyDown(key)
                 keyEvent.preventDefault()
             }
@@ -2348,6 +2902,12 @@ class SigilHydrator(
         val b = (argb and 0xFF) / 255f
         return Color(r, g, b)
     }
+
+    private fun List<Float>.toVector3(): Vector3 = Vector3(
+        getOrElse(0) { 0f },
+        getOrElse(1) { 0f },
+        getOrElse(2) { 0f }
+    )
 }
 
 @Suppress("UnsafeCastFromDynamic")

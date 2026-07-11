@@ -15,6 +15,9 @@ data class SigilSceneEventHandler(
     val match: SigilSceneEventMatch,
     val onEvent: () -> Unit = {},
     val onResponse: (() -> SigilSceneEventCallbackResponse?)? = null,
+    val optimisticPatch: ScenePatch? = null,
+    val requestKey: String? = null,
+    val suppressWhilePending: Boolean = true,
     val reloadOnSuccess: Boolean? = null,
     val preventDefault: Boolean = true,
     val stopPropagation: Boolean = false
@@ -27,6 +30,9 @@ data class SigilSceneEventBinding(
     val callbackUrl: String? = null,
     val localHandlerId: String? = null,
     val url: String? = null,
+    val optimisticPatch: ScenePatch? = null,
+    val requestKey: String? = null,
+    val suppressWhilePending: Boolean = true,
     val reloadOnSuccess: Boolean? = null,
     val preventDefault: Boolean = true,
     val stopPropagation: Boolean = false
@@ -51,10 +57,10 @@ data class SigilSceneEventCallbackResponse(
 
     fun scenePatchesFor(canvasId: String): List<ScenePatch> =
         listOfNotNull(scenePatch, sigilPatch, patch)
-            .filter { it.nodes.isNotEmpty() } +
+            .filterNot { it.isEmpty } +
             (patches + scenePatches)
                 .filter { it.canvasId == null || it.canvasId == canvasId }
-                .mapNotNull { it.patch?.takeIf { patch -> patch.nodes.isNotEmpty() } }
+                .mapNotNull { it.patch?.takeUnless { patch -> patch.isEmpty } }
 
     fun domPatchesToApply(): List<SigilDomPatch> =
         listOfNotNull(domPatch, summonPatch) + domPatches + summonPatches
@@ -184,6 +190,9 @@ internal fun SigilSceneEventHandler.toCallbackBinding(
         match = match,
         callbackId = callbackId,
         callbackUrl = callbackUrl,
+        optimisticPatch = optimisticPatch,
+        requestKey = requestKey,
+        suppressWhilePending = suppressWhilePending,
         reloadOnSuccess = reloadOnSuccess,
         preventDefault = preventDefault,
         stopPropagation = stopPropagation
@@ -193,6 +202,9 @@ internal fun SigilSceneEventHandler.toLocalBinding(localHandlerId: String): Sigi
     SigilSceneEventBinding(
         match = match,
         localHandlerId = localHandlerId,
+        optimisticPatch = optimisticPatch,
+        requestKey = requestKey,
+        suppressWhilePending = suppressWhilePending,
         reloadOnSuccess = reloadOnSuccess,
         preventDefault = preventDefault,
         stopPropagation = stopPropagation

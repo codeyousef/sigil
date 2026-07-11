@@ -27,17 +27,17 @@ internal object SigilTextFontCache {
         val requestedUrl = fontUrl?.takeIf { it.isNotBlank() } ?: SIGIL_DEFAULT_FONT_URL
         fonts[requestedUrl]?.let { return it }
 
-        val font =
+        val font = try {
+            resolver.load(requestedUrl).decodeToString().toGeometryFont()
+        } catch (failure: Throwable) {
             if (requestedUrl == SIGIL_DEFAULT_FONT_URL) {
+                console.warn("Sigil: Failed to load bundled text font: ${failure.message}; using block fallback")
                 SigilDefaultBlockFont.font
             } else {
-                try {
-                    resolver.load(requestedUrl).decodeToString().toGeometryFont()
-                } catch (customFailure: Throwable) {
-                    console.warn("Sigil: Failed to load text font $requestedUrl: ${customFailure.message}; using default")
-                    load(SIGIL_DEFAULT_FONT_URL)
-                }
+                console.warn("Sigil: Failed to load text font $requestedUrl: ${failure.message}; using bundled default")
+                load(SIGIL_DEFAULT_FONT_URL)
             }
+        }
 
         fonts[requestedUrl] = font
         return font
@@ -634,19 +634,19 @@ private fun String.toGeometryCommands(): List<GeometryPathCommand> {
                 commands += GeometryPathCommand.LineTo(x, y)
             }
             "q" -> {
-                val cpx = nextFloat() ?: break
-                val cpy = nextFloat() ?: break
                 val x = nextFloat() ?: break
                 val y = nextFloat() ?: break
+                val cpx = nextFloat() ?: break
+                val cpy = nextFloat() ?: break
                 commands += GeometryPathCommand.QuadraticCurveTo(cpx, cpy, x, y)
             }
             "b" -> {
+                val x = nextFloat() ?: break
+                val y = nextFloat() ?: break
                 val cp1x = nextFloat() ?: break
                 val cp1y = nextFloat() ?: break
                 val cp2x = nextFloat() ?: break
                 val cp2y = nextFloat() ?: break
-                val x = nextFloat() ?: break
-                val y = nextFloat() ?: break
                 commands += GeometryPathCommand.BezierCurveTo(cp1x, cp1y, cp2x, cp2y, x, y)
             }
             "z" -> commands += GeometryPathCommand.ClosePath

@@ -157,6 +157,9 @@ data class ModelData(
      */
     val url: String,
 
+    /** Additional model URLs warmed into Materia's shared glTF cache. */
+    val preloadUrls: List<String> = emptyList(),
+
     /**
      * Whether meshes in the model cast shadows.
      */
@@ -171,7 +174,12 @@ data class ModelData(
      * Optional material overrides applied after loading.
      */
     val materialOverrides: List<ModelMaterialOverride> = emptyList()
-) : SigilNodeData()
+) : SigilNodeData() {
+    init {
+        require(url.isNotBlank()) { "ModelData.url must not be blank" }
+        require(preloadUrls.none(String::isBlank)) { "ModelData.preloadUrls must not contain blanks" }
+    }
+}
 
 /**
  * Represents mesh text in the scene graph.
@@ -370,6 +378,9 @@ data class ControlsData(
     val target: List<Float> = listOf(0f, 0f, 0f),
     val enableDamping: Boolean = true,
     val dampingFactor: Float = 0.05f,
+    val dampingTime: Float = 0.04f,
+    val settleEpsilon: Float = 0.0001f,
+    val maxDeltaTime: Float = 0.05f,
     val minDistance: Float = 1f,
     val maxDistance: Float = 1000f,
     val minPolarAngle: Float = 0f,

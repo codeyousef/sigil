@@ -8,6 +8,14 @@ import codes.yousef.sigil.summon.components.SigilAmbientLight
 import codes.yousef.sigil.summon.components.SigilDirectionalLight
 import codes.yousef.sigil.summon.components.SigilCamera
 import codes.yousef.sigil.summon.components.SigilText
+import codes.yousef.sigil.summon.components.SigilAudio
+import codes.yousef.sigil.summon.components.SigilFrameStatsText
+import codes.yousef.sigil.summon.components.SigilScreenLayer
+import codes.yousef.sigil.summon.components.SigilSoundBus
+import codes.yousef.sigil.schema.ProceduralAudioData
+import codes.yousef.sigil.schema.ScreenAnchor
+import codes.yousef.sigil.schema.ScreenLayoutData
+import codes.yousef.sigil.schema.TextBaselineMode
 import codes.yousef.sigil.schema.TextFacingMode
 
 /**
@@ -17,6 +25,41 @@ import codes.yousef.sigil.schema.TextFacingMode
  */
 @Composable
 fun Sample3DScene() {
+    SigilSoundBus(bus = "sfx", volume = 0.35f, storageKey = "sigil-sample-sound")
+    SigilAudio(
+        id = "sample-confirm-cue",
+        procedural = ProceduralAudioData(startFrequencyHz = 260f, endFrequencyHz = 620f),
+        bus = "sfx"
+    )
+
+    SigilScreenLayer(
+        id = "sample-hud",
+        desktop = ScreenLayoutData(ScreenAnchor.TOP_LEFT, 20f, 20f),
+        mobile = ScreenLayoutData(ScreenAnchor.BOTTOM_LEFT, 14f, 14f, scale = 0.8f)
+    ) {
+        SigilPlane(
+            width = 220f,
+            height = 58f,
+            position = listOf(110f, -29f, 0f),
+            color = 0xEE111820.toInt(),
+            receiveShadow = false
+        )
+        SigilText(
+            text = "SIGIL SCREEN LAYER",
+            position = listOf(16f, -17f, 1f),
+            size = 15f,
+            depth = 0.01f,
+            baseline = TextBaselineMode.TOP,
+            color = 0xFF67E8F9.toInt()
+        )
+        SigilFrameStatsText(
+            position = listOf(16f, -39f, 1f),
+            size = 12f,
+            prefix = "FPS ",
+            color = 0xFFFFFFFF.toInt()
+        )
+    }
+
     // Lighting setup
     SigilAmbientLight(
         color = 0x404040,
