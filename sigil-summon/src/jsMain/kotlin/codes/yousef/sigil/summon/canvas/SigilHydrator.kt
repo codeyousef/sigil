@@ -293,7 +293,7 @@ class SigilHydrator(
     private var activeInputPointerId: Int? = null
     private var pendingDrag: PendingDrag? = null
     private var activeDrag: ActiveDrag? = null
-    private var hoverDropTarget: Object3D? = null
+    private var hoveredInteraction: Object3D? = null
     private val activeAnimations = mutableListOf<ActiveSceneAnimation>()
     private val billboardTextNodes = mutableListOf<Object3D>()
     private val screenLayers = mutableListOf<RuntimeScreenLayer>()
@@ -633,6 +633,8 @@ class SigilHydrator(
     }
 
     internal fun nodePositionForTesting(nodeId: String): Vector3? = nodeMap[nodeId]?.position?.clone()
+
+    internal fun nodeVisibleForTesting(nodeId: String): Boolean? = nodeMap[nodeId]?.visible
 
     internal fun cameraPositionForTesting(): Vector3? = camera?.position?.clone()
 
@@ -1726,7 +1728,7 @@ class SigilHydrator(
                 )
                 pendingDrag = null
                 activeDrag = drag
-                updateHoverDropTarget(null)
+                updateHoveredInteraction(pointerEvent, null, null)
                 setCanvasCursor(CursorHint.GRABBING)
                 dispatchSceneEvent("dragstart", pointerEvent, pending.source, pending.startIntersection, drag)
                 updateActiveDrag(drag, pointerEvent)
@@ -1742,7 +1744,7 @@ class SigilHydrator(
 
             val hit = pickInteractive(pointerEvent)
             val node = hit.second
-            updateHoverDropTarget(node?.takeIf { isDropTargetNode(it) })
+            updateHoveredInteraction(pointerEvent, node, hit.first)
             if (node != null) {
                 interactionForNode(node)?.let { setCanvasCursor(it.cursor) }
                 dispatchSceneEvent("pointermove", pointerEvent, node, hit.first)
@@ -1797,6 +1799,11 @@ class SigilHydrator(
             cancelInteractionPointer(pointerEvent)
         }
 
+        val pointerLeave: (Event) -> Unit = pointerLeave@{ event ->
+            val pointerEvent = event as? PointerEvent ?: return@pointerLeave
+            if (activeDrag == null) updateHoveredInteraction(pointerEvent, null, null)
+        }
+
         val click: (Event) -> Unit = click@{ event ->
             val mouseEvent = event as? MouseEvent ?: return@click
             if (dragGesture.consumeClickSuppression()) {
@@ -1816,10 +1823,11 @@ class SigilHydrator(
         canvas.addEventListener("pointerup", pointerUp, true)
         canvas.addEventListener("pointercancel", pointerCancelled, true)
         canvas.addEventListener("lostpointercapture", pointerCancelled, true)
+        canvas.addEventListener("pointerleave", pointerLeave, true)
         canvas.addEventListener("click", click, true)
 
         return {
-            updateHoverDropTarget(null)
+            clearHoveredInteractionVisual()
             activeDrag?.target?.let { setDropTargetState(it, null) }
             activeDrag?.let(::restoreDragSourcePosition)
             pendingDrag = null
@@ -1836,6 +1844,7 @@ class SigilHydrator(
             canvas.removeEventListener("pointerup", pointerUp, true)
             canvas.removeEventListener("pointercancel", pointerCancelled, true)
             canvas.removeEventListener("lostpointercapture", pointerCancelled, true)
+            canvas.removeEventListener("pointerleave", pointerLeave, true)
             canvas.removeEventListener("click", click, true)
             canvas.style.setProperty("cursor", "auto")
         }
@@ -1887,7 +1896,7 @@ class SigilHydrator(
             dragGesture.endWithoutDrag(pointerId)
         }
 
-        updateHoverDropTarget(null)
+        updateHoveredInteraction(event, null, null)
         endInputPointer(pointerId)
         releasePointer(pointerId)
         setCanvasCursor(CursorHint.AUTO)
@@ -1925,7 +1934,7 @@ class SigilHydrator(
     }
 
     private fun pickDropTarget(event: MouseEvent, drag: ActiveDrag): Pair<Object3D?, DropEvaluation?> {
-        val hit = pickInteractionHit(event) { candidate ->
+        val hit = pickInteractionHit(event, SigilInteractionPickPurpose.DROP_TARGET) { candidate ->
             candidate != drag.source && isDropTargetNode(candidate)
         } ?: return Pair(null, null)
 
@@ -1960,6 +1969,7 @@ class SigilHydrator(
 
     private fun pickInteractionHit(
         event: MouseEvent,
+        purpose: SigilInteractionPickPurpose = SigilInteractionPickPurpose.POINTER,
         acceptCandidate: (Object3D) -> Boolean = { true }
     ): SigilInteractionHit? {
         val worldCamera = camera ?: return null
@@ -1970,7 +1980,7 @@ class SigilHydrator(
             camera = worldCamera,
             overlays = renderOverlayLayers()
         ) { scene, sceneCamera, normalizedPointer ->
-            pickInteractionHitInScene(normalizedPointer, scene, sceneCamera, acceptCandidate)
+            pickInteractionHitInScene(normalizedPointer, scene, sceneCamera, purpose, acceptCandidate)
         }?.value
     }
 
@@ -1978,12 +1988,13 @@ class SigilHydrator(
         pointer: Vector2,
         scene: Scene,
         sceneCamera: Camera,
+        purpose: SigilInteractionPickPurpose,
         acceptCandidate: (Object3D) -> Boolean
     ): SigilInteractionHit? {
         val ray = SigilInteractionPicker.rayFromCamera(pointer, sceneCamera)
-        val hitVolumeHits = hitVolumeHits(ray, scene)
-        val hits = if (shouldRunMeshRaycaster(scene, acceptCandidate)) {
-            hitVolumeHits + meshRaycasterHits(ray, scene)
+        val hitVolumeHits = hitVolumeHits(ray, scene, purpose)
+        val hits = if (shouldRunMeshRaycaster(scene, purpose, acceptCandidate)) {
+            hitVolumeHits + meshRaycasterHits(ray, scene, purpose, acceptCandidate)
         } else {
             hitVolumeHits
         }
@@ -1995,6 +2006,7 @@ class SigilHydrator(
 
     private fun shouldRunMeshRaycaster(
         scene: Scene,
+        purpose: SigilInteractionPickPurpose,
         acceptCandidate: (Object3D) -> Boolean
     ): Boolean {
         val acceptedInteractions = nodeMap.values.mapNotNull { node ->
@@ -2004,7 +2016,7 @@ class SigilHydrator(
             interactionForNode(node)?.takeIf { it.enabled }
         }
 
-        return SigilInteractionPicker.requiresMeshRaycast(acceptedInteractions)
+        return SigilInteractionPicker.requiresMeshRaycast(acceptedInteractions, purpose)
     }
 
     private fun rayForEvent(event: MouseEvent): Ray? {
@@ -2013,16 +2025,20 @@ class SigilHydrator(
         return SigilInteractionPicker.rayFromCamera(pointer, cam)
     }
 
-    private fun hitVolumeHits(ray: Ray, scene: Scene): List<SigilInteractionHit> {
+    private fun hitVolumeHits(
+        ray: Ray,
+        scene: Scene,
+        purpose: SigilInteractionPickPurpose
+    ): List<SigilInteractionHit> {
         val hits = mutableListOf<SigilInteractionHit>()
 
         nodeMap.values.forEach { node ->
             if (!node.belongsToScene(scene)) return@forEach
             if (!node.isVisibleInHierarchy()) return@forEach
             val interaction = interactionForNode(node) ?: return@forEach
-            if (!interaction.enabled || interaction.hitVolume == null) return@forEach
+            if (!interaction.enabled) return@forEach
 
-            SigilInteractionPicker.intersectHitVolume(ray, node, interaction)?.let { hit ->
+            SigilInteractionPicker.intersectHitVolume(ray, node, interaction, purpose)?.let { hit ->
                 hits.add(hit)
             }
         }
@@ -2030,7 +2046,12 @@ class SigilHydrator(
         return hits
     }
 
-    private fun meshRaycasterHits(ray: Ray, scene: Scene): List<SigilInteractionHit> {
+    private fun meshRaycasterHits(
+        ray: Ray,
+        scene: Scene,
+        purpose: SigilInteractionPickPurpose,
+        acceptCandidate: (Object3D) -> Boolean
+    ): List<SigilInteractionHit> {
         raycaster.ray.origin.copy(ray.origin)
         raycaster.ray.direction.copy(ray.direction)
         val intersections = raycaster.intersectObject(scene, true)
@@ -2039,6 +2060,9 @@ class SigilHydrator(
         for (intersection in intersections) {
             val candidate = findInteractiveNode(intersection.`object`) ?: continue
             if (!candidate.isVisibleInHierarchy()) continue
+            if (!acceptCandidate(candidate)) continue
+            val interaction = interactionForNode(candidate) ?: continue
+            if (!SigilInteractionPicker.usesMeshRaycast(interaction, purpose)) continue
             hits.add(SigilInteractionHit(intersection, candidate))
         }
 
@@ -2132,12 +2156,29 @@ class SigilHydrator(
     private fun dropStateFor(evaluation: DropEvaluation): String =
         if (evaluation.accepted) "valid" else "invalid"
 
-    private fun updateHoverDropTarget(target: Object3D?) {
-        if (hoverDropTarget == target) return
+    private fun updateHoveredInteraction(
+        event: MouseEvent,
+        target: Object3D?,
+        intersection: Intersection?
+    ) {
+        if (hoveredInteraction == target) return
 
-        hoverDropTarget?.let { setDropTargetState(it, null) }
-        hoverDropTarget = target
-        target?.let { setDropTargetState(it, "hover") }
+        hoveredInteraction?.let { previous ->
+            if (isDropTargetNode(previous)) setDropTargetState(previous, null)
+            dispatchSceneEvent("pointerleave", event, previous, null)
+        }
+        hoveredInteraction = target
+        target?.let { current ->
+            if (isDropTargetNode(current)) setDropTargetState(current, "hover")
+            dispatchSceneEvent("pointerenter", event, current, intersection)
+        }
+    }
+
+    private fun clearHoveredInteractionVisual() {
+        hoveredInteraction?.let { previous ->
+            if (isDropTargetNode(previous)) setDropTargetState(previous, null)
+        }
+        hoveredInteraction = null
     }
 
     private fun setDropTargetState(node: Object3D, state: String?) {
@@ -2192,7 +2233,12 @@ class SigilHydrator(
         dispatchBrowserEvent("sigil:$type", detail)
         dispatchSceneEventBindings(sceneEventPayload(type, node, drag), event)
 
-        if (type != "pointermove" && type != "drag") {
+        if (
+            type != "pointermove" &&
+            type != "pointerenter" &&
+            type != "pointerleave" &&
+            type != "drag"
+        ) {
             (node.userData["sigilNodeId"] as? String)?.let { nodeId ->
                 nodeDataMap[nodeId]?.let { scheduleAnimations(node, it.animations, AnimationTrigger.INTERACTION) }
             }

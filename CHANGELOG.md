@@ -2,6 +2,21 @@
 
 ## [Unreleased]
 
+## [0.4.3.3] - 2026-08-12
+
+### Added
+
+- Added an optional drop-target-only hit volume so forgiving drag targets no longer have to intercept ordinary hover and click picking.
+- Emitted local `pointerenter` and `pointerleave` scene events when the nearest interactive node changes, enabling authored hover feedback without callbacks.
+
+### Fixed
+
+- Kept pointer picking on each interaction's visual hit area while active drags use the drop-target override, preserving legacy shared-volume behavior when no override is authored.
+
+### Tests
+
+- Added schema, picker, browser, and packaged-runtime coverage for overlapping visual and drop-only hit areas, hover transitions, click precedence, and accepted drops.
+
 ## [0.4.3.2] - 2026-08-12
 
 ### Fixed

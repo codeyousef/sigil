@@ -55,6 +55,11 @@ class SigilNodeDataTest {
                         hover = HighlightPatch(active = true, color = 0xFF38BDF8.toInt()),
                         valid = HighlightPatch(active = true, color = 0xFF22C55E.toInt()),
                         invalid = HighlightPatch(active = true, color = 0xFFEF4444.toInt())
+                    ),
+                    hitVolume = HitVolumeData(
+                        shape = HitVolumeShape.BOX,
+                        center = listOf(0f, 1f, 0f),
+                        size = listOf(4f, 3f, 4f)
                     )
                 )
             ),
@@ -77,7 +82,44 @@ class SigilNodeDataTest {
         assertEquals(0xFF38BDF8.toInt(), restored.interaction?.dropTarget?.states?.hover?.color)
         assertEquals(0xFF22C55E.toInt(), restored.interaction?.dropTarget?.states?.valid?.color)
         assertEquals(0xFFEF4444.toInt(), restored.interaction?.dropTarget?.states?.invalid?.color)
+        assertEquals(HitVolumeShape.BOX, restored.interaction?.dropTarget?.hitVolume?.shape)
+        assertEquals(listOf(4f, 3f, 4f), restored.interaction?.dropTarget?.hitVolume?.size)
         assertEquals(AnimationKind.PULSE, restored.animations.single().kind)
+    }
+
+    @Test
+    fun polymorphicSerialization_legacyDropTargetDefaultsHitVolume() {
+        val restored = SigilJson.decodeFromString(
+            SigilNodeData.serializer(),
+            """{"type":"mesh","id":"legacy-target","interaction":{"dropTarget":{"groups":["inventory"]}}}"""
+        ) as MeshData
+
+        assertNull(restored.interaction?.dropTarget?.hitVolume)
+        assertEquals(listOf("inventory"), restored.interaction?.dropTarget?.groups)
+    }
+
+    @Test
+    fun manualInteractionJsonRoundTripsDropTargetHitVolume() {
+        val interaction = InteractionMetadata(
+            hitVolume = HitVolumeData(
+                shape = HitVolumeShape.BOX,
+                size = listOf(1f, 1f, 1f)
+            ),
+            dropTarget = DropTargetMetadata(
+                targetId = "truck-a",
+                hitVolume = HitVolumeData(
+                    shape = HitVolumeShape.BOX,
+                    center = listOf(0f, 1.5f, 0f),
+                    size = listOf(4f, 3f, 3f)
+                )
+            )
+        )
+
+        val restored = requireNotNull(interaction.toInteractionJson()).toInteractionMetadata()
+
+        assertEquals("truck-a", restored.dropTarget?.targetId)
+        assertEquals(listOf(0f, 1.5f, 0f), restored.dropTarget?.hitVolume?.center)
+        assertEquals(listOf(4f, 3f, 3f), restored.dropTarget?.hitVolume?.size)
     }
 
     @Test

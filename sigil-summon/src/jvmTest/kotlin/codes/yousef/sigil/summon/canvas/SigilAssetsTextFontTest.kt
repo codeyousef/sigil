@@ -20,6 +20,8 @@ class SigilAssetsTextFontTest {
         assertTrue(script.contains("lostpointercapture"))
         assertTrue(script.contains("setPointerCapture"))
         assertTrue(script.contains("cancelled"))
+        assertTrue(script.contains("pointerenter"))
+        assertTrue(script.contains("pointerleave"))
     }
 
     @Test

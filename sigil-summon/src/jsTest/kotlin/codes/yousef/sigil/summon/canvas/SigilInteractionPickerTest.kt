@@ -3,6 +3,7 @@ package codes.yousef.sigil.summon.canvas
 import codes.yousef.sigil.schema.HitVolumeData
 import codes.yousef.sigil.schema.HitVolumeShape
 import codes.yousef.sigil.schema.InteractionMetadata
+import codes.yousef.sigil.schema.DropTargetMetadata
 import io.materia.camera.OrthographicCamera
 import io.materia.core.math.Ray
 import io.materia.core.math.Vector2
@@ -172,6 +173,96 @@ class SigilInteractionPickerTest {
     @Test
     fun requiresMeshRaycast_returnsFalseWhenNoAcceptedCandidatesRemain() {
         assertFalse(SigilInteractionPicker.requiresMeshRaycast(emptyList()))
+    }
+
+    @Test
+    fun dropTargetPurposeUsesDropOnlyHitVolumeWhilePointerPurposeUsesVisualVolume() {
+        val interaction = InteractionMetadata(
+            hitVolume = HitVolumeData(
+                shape = HitVolumeShape.BOX,
+                size = listOf(1f, 1f, 1f)
+            ),
+            dropTarget = DropTargetMetadata(
+                hitVolume = HitVolumeData(
+                    shape = HitVolumeShape.BOX,
+                    size = listOf(4f, 2f, 2f)
+                )
+            )
+        )
+        val node = Group().apply { position.set(1f, 0f, 0f) }
+        val ray = Ray(Vector3(0f, 0f, 5f), Vector3(0f, 0f, -1f))
+
+        assertNull(
+            SigilInteractionPicker.intersectHitVolume(
+                ray,
+                node,
+                interaction,
+                SigilInteractionPickPurpose.POINTER
+            )
+        )
+        assertNotNull(
+            SigilInteractionPicker.intersectHitVolume(
+                ray,
+                node,
+                interaction,
+                SigilInteractionPickPurpose.DROP_TARGET
+            )
+        )
+    }
+
+    @Test
+    fun dropTargetPurposeFallsBackToInteractionHitVolume() {
+        val visualVolume = HitVolumeData(
+            shape = HitVolumeShape.SPHERE,
+            radius = 2f
+        )
+        val interaction = InteractionMetadata(
+            hitVolume = visualVolume,
+            dropTarget = DropTargetMetadata()
+        )
+
+        assertSame(
+            visualVolume,
+            SigilInteractionPicker.effectiveHitVolume(
+                interaction,
+                SigilInteractionPickPurpose.DROP_TARGET
+            )
+        )
+    }
+
+    @Test
+    fun mixedDropTargetsOnlyUseMeshHitsForTargetsAuthoredForMeshPicking() {
+        val explicitTarget = InteractionMetadata(
+            hitVolume = HitVolumeData(shape = HitVolumeShape.MESH),
+            dropTarget = DropTargetMetadata(
+                hitVolume = HitVolumeData(shape = HitVolumeShape.BOX, size = listOf(2f, 2f, 2f))
+            )
+        )
+        val meshTarget = InteractionMetadata(
+            hitVolume = HitVolumeData(shape = HitVolumeShape.BOX, size = listOf(2f, 2f, 2f)),
+            dropTarget = DropTargetMetadata(
+                hitVolume = HitVolumeData(shape = HitVolumeShape.MESH)
+            )
+        )
+
+        assertTrue(
+            SigilInteractionPicker.requiresMeshRaycast(
+                listOf(explicitTarget, meshTarget),
+                SigilInteractionPickPurpose.DROP_TARGET
+            )
+        )
+        assertFalse(
+            SigilInteractionPicker.usesMeshRaycast(
+                explicitTarget,
+                SigilInteractionPickPurpose.DROP_TARGET
+            )
+        )
+        assertTrue(
+            SigilInteractionPicker.usesMeshRaycast(
+                meshTarget,
+                SigilInteractionPickPurpose.DROP_TARGET
+            )
+        )
     }
 
     private fun assertClose(expected: Float, actual: Float) {

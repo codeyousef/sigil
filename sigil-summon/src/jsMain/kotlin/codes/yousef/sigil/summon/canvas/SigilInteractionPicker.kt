@@ -22,12 +22,32 @@ internal data class SigilInteractionHit(
     val node: Object3D
 )
 
+internal enum class SigilInteractionPickPurpose {
+    POINTER,
+    DROP_TARGET
+}
+
 internal object SigilInteractionPicker {
 
-    fun requiresMeshRaycast(interactions: List<InteractionMetadata>): Boolean =
-        interactions.any { interaction ->
-            interaction.enabled && !interaction.hasExplicitHitVolume()
-        }
+    fun requiresMeshRaycast(
+        interactions: List<InteractionMetadata>,
+        purpose: SigilInteractionPickPurpose = SigilInteractionPickPurpose.POINTER
+    ): Boolean =
+        interactions.any { interaction -> usesMeshRaycast(interaction, purpose) }
+
+    fun usesMeshRaycast(
+        interaction: InteractionMetadata,
+        purpose: SigilInteractionPickPurpose = SigilInteractionPickPurpose.POINTER
+    ): Boolean = interaction.enabled && !effectiveHitVolume(interaction, purpose).isExplicit()
+
+    fun effectiveHitVolume(
+        interaction: InteractionMetadata,
+        purpose: SigilInteractionPickPurpose
+    ): HitVolumeData? = when (purpose) {
+        SigilInteractionPickPurpose.POINTER -> interaction.hitVolume
+        SigilInteractionPickPurpose.DROP_TARGET ->
+            interaction.dropTarget?.hitVolume ?: interaction.hitVolume
+    }
 
     fun rayFromCamera(pointer: Vector2, camera: Camera): Ray {
         camera.updateMatrixWorld()
@@ -51,8 +71,13 @@ internal object SigilInteractionPicker {
         return Ray(origin, direction)
     }
 
-    fun intersectHitVolume(ray: Ray, node: Object3D, interaction: InteractionMetadata): SigilInteractionHit? {
-        val hitVolume = interaction.hitVolume ?: return null
+    fun intersectHitVolume(
+        ray: Ray,
+        node: Object3D,
+        interaction: InteractionMetadata,
+        purpose: SigilInteractionPickPurpose = SigilInteractionPickPurpose.POINTER
+    ): SigilInteractionHit? {
+        val hitVolume = effectiveHitVolume(interaction, purpose) ?: return null
         if (hitVolume.shape == HitVolumeShape.MESH) return null
 
         node.updateWorldMatrix(updateParents = true, updateChildren = true)
@@ -134,8 +159,6 @@ internal object SigilInteractionPicker {
             getOrNull(2) ?: 0f
         )
 
-    private fun InteractionMetadata.hasExplicitHitVolume(): Boolean {
-        val hitVolume = hitVolume ?: return false
-        return hitVolume.shape != HitVolumeShape.MESH
-    }
+    private fun HitVolumeData?.isExplicit(): Boolean =
+        this != null && shape != HitVolumeShape.MESH
 }
