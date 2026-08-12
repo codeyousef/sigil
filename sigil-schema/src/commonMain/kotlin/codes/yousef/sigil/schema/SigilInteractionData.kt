@@ -84,7 +84,12 @@ data class DropTargetMetadata(
     val targetId: String? = null,
     val groups: List<String> = emptyList(),
     val accepts: List<String> = emptyList(),
-    val states: DropTargetStateMetadata = DropTargetStateMetadata()
+    val states: DropTargetStateMetadata = DropTargetStateMetadata(),
+    /**
+     * Optional drag/drop-only hit volume. When absent, drop picking reuses the
+     * owning interaction's hit volume for backward compatibility.
+     */
+    val hitVolume: HitVolumeData? = null
 )
 
 @Serializable
@@ -471,7 +476,8 @@ private fun DropTargetMetadata.toJsonObject(): JsonObject = jsonObjectOf(
     "targetId" to targetId?.let(::JsonPrimitive),
     "groups" to groups.toJsonArray(),
     "accepts" to accepts.toJsonArray(),
-    "states" to states.toJsonObject()
+    "states" to states.toJsonObject(),
+    "hitVolume" to hitVolume?.toJsonObject()
 )
 
 private fun JsonObject.toDropTargetMetadata(): DropTargetMetadata = DropTargetMetadata(
@@ -479,7 +485,8 @@ private fun JsonObject.toDropTargetMetadata(): DropTargetMetadata = DropTargetMe
     targetId = stringOrNull("targetId"),
     groups = stringList("groups"),
     accepts = stringList("accepts"),
-    states = objOrNull("states")?.toDropTargetStateMetadata() ?: DropTargetStateMetadata()
+    states = objOrNull("states")?.toDropTargetStateMetadata() ?: DropTargetStateMetadata(),
+    hitVolume = objOrNull("hitVolume")?.toHitVolumeData()
 )
 
 private fun DropTargetStateMetadata.toJsonObject(): JsonObject = jsonObjectOf(

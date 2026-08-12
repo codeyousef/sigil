@@ -12,6 +12,8 @@ import codes.yousef.sigil.schema.HitVolumeShape
 import codes.yousef.sigil.schema.InteractionMetadata
 import codes.yousef.sigil.schema.MeshData
 import codes.yousef.sigil.schema.RendererPreference
+import codes.yousef.sigil.schema.SceneNodePatch
+import codes.yousef.sigil.schema.ScenePatch
 import codes.yousef.sigil.schema.SceneSettings
 import codes.yousef.sigil.schema.SigilScene
 import kotlinx.browser.document
@@ -31,6 +33,7 @@ import kotlin.test.assertTrue
 
 private external interface BrowserSceneEventDetail {
     val type: String?
+    val interactionId: String?
     val drag: BrowserSceneDragDetail?
 }
 
@@ -275,6 +278,74 @@ class SigilPointerInteractionBrowserTest {
             }
         }
 
+    @OptIn(DelicateCoroutinesApi::class)
+    @Test
+    fun visualHoverAndClickPreferPackageWhileDragUsesBroadDropOnlyVolume(): Promise<Unit> =
+        GlobalScope.promise {
+            if (!browserPointerEventsAvailable()) return@promise
+
+            val harness = overlappingPointerHarness()
+            val events = mutableListOf<Pair<String?, String?>>()
+            val listener: (Event) -> Unit = { event ->
+                val detail = event.asDynamic().detail.unsafeCast<BrowserSceneEventDetail>()
+                events += detail.type to detail.interactionId
+            }
+            harness.canvas.addEventListener("sigil:scene-event", listener)
+
+            try {
+                harness.hydrator.initialize()
+                val rect = harness.canvas.getBoundingClientRect()
+                val centerX = (rect.left + rect.width / 2.0).toInt()
+                val centerY = (rect.top + rect.height / 2.0).toInt()
+
+                harness.canvas.dispatchEvent(pointerEvent("pointermove", 31, "mouse", centerX, centerY))
+                assertEquals(true, harness.hydrator.nodeVisibleForTesting("package-hover"))
+                assertEquals(false, harness.hydrator.nodeVisibleForTesting("target-hover"))
+                assertTrue(("pointerenter" to "package") in events)
+
+                harness.canvas.dispatchEvent(pointerEvent("click", 31, "mouse", centerX, centerY))
+                assertTrue(("click" to "package") in events)
+                assertFalse(("click" to "target") in events)
+
+                harness.canvas.dispatchEvent(pointerEvent("pointermove", 31, "mouse", centerX + 30, centerY))
+                assertEquals(false, harness.hydrator.nodeVisibleForTesting("package-hover"))
+                assertEquals(true, harness.hydrator.nodeVisibleForTesting("target-hover"))
+                assertTrue(("pointerleave" to "package") in events)
+                assertTrue(("pointerenter" to "target") in events)
+
+                harness.canvas.dispatchEvent(
+                    pointerEvent(
+                        "pointermove",
+                        31,
+                        "mouse",
+                        (rect.right - 10.0).toInt(),
+                        (rect.top + 10.0).toInt()
+                    )
+                )
+                assertEquals(false, harness.hydrator.nodeVisibleForTesting("package-hover"))
+                assertEquals(false, harness.hydrator.nodeVisibleForTesting("target-hover"))
+                assertTrue(("pointerleave" to "target") in events)
+
+                harness.canvas.dispatchEvent(pointerEvent("pointermove", 31, "mouse", centerX, centerY))
+                assertEquals(true, harness.hydrator.nodeVisibleForTesting("package-hover"))
+                harness.canvas.dispatchEvent(pointerEvent("pointerleave", 31, "mouse", centerX, centerY))
+                assertEquals(false, harness.hydrator.nodeVisibleForTesting("package-hover"))
+
+                harness.canvas.dispatchEvent(pointerEvent("pointermove", 31, "mouse", centerX, centerY))
+                harness.canvas.dispatchEvent(pointerEvent("pointerdown", 31, "mouse", centerX, centerY))
+                harness.canvas.dispatchEvent(pointerEvent("pointermove", 31, "mouse", centerX + 10, centerY))
+                assertEquals(false, harness.hydrator.nodeVisibleForTesting("package-hover"))
+                assertTrue(("dragenter" to "target") in events)
+                harness.canvas.dispatchEvent(pointerEvent("pointerup", 31, "mouse", centerX + 10, centerY))
+
+                assertEquals(1, events.count { it == ("drop" to "target") })
+                assertEquals(1, events.count { it == ("dragend" to "package") })
+            } finally {
+                harness.canvas.removeEventListener("sigil:scene-event", listener)
+                harness.dispose()
+            }
+        }
+
     private fun pointerHarness(
         includeOrbitControls: Boolean = false,
         usePointerCaptureShim: Boolean = false
@@ -336,6 +407,104 @@ class SigilPointerInteractionBrowserTest {
             )
         )
     }
+
+    private fun overlappingPointerHarness(): PointerHarness {
+        val host = document.createElement("div") as HTMLElement
+        host.style.width = "320px"
+        host.style.height = "180px"
+        val canvas = document.createElement("canvas") as HTMLCanvasElement
+        canvas.style.width = "100%"
+        canvas.style.height = "100%"
+        host.appendChild(canvas)
+        document.body?.appendChild(host)
+
+        val hoverBindings = listOf(
+            hoverBinding("package", "package-hover", "pointerenter", true),
+            hoverBinding("package", "package-hover", "pointerleave", false),
+            hoverBinding("target", "target-hover", "pointerenter", true),
+            hoverBinding("target", "target-hover", "pointerleave", false)
+        )
+        val scene = SigilScene(
+            rootNodes = listOf(
+                CameraData(
+                    id = "camera",
+                    position = listOf(0f, 0f, 5f),
+                    lookAt = listOf(0f, 0f, 0f)
+                ),
+                MeshData(
+                    id = "package",
+                    geometryType = GeometryType.BOX,
+                    geometryParams = GeometryParams(width = 1f, height = 1f, depth = 1f),
+                    interaction = InteractionMetadata(
+                        interactionId = "package",
+                        cursor = codes.yousef.sigil.schema.CursorHint.GRAB,
+                        hitVolume = HitVolumeData(
+                            shape = HitVolumeShape.BOX,
+                            size = listOf(1f, 1f, 1f)
+                        ),
+                        actions = listOf("package"),
+                        events = listOf("pointerenter", "pointerleave", "click", "dragstart", "drag", "dragend"),
+                        drag = DragMetadata(dropGroups = listOf("routing"))
+                    )
+                ),
+                MeshData(
+                    id = "target",
+                    position = listOf(1f, 0f, 1f),
+                    geometryType = GeometryType.BOX,
+                    geometryParams = GeometryParams(width = 1.2f, height = 1.2f, depth = 1.2f),
+                    interaction = InteractionMetadata(
+                        interactionId = "target",
+                        hitVolume = HitVolumeData(
+                            shape = HitVolumeShape.BOX,
+                            size = listOf(1.2f, 1.2f, 1.2f)
+                        ),
+                        events = listOf("pointerenter", "pointerleave", "dragenter", "dragleave", "drop"),
+                        dropTarget = DropTargetMetadata(
+                            groups = listOf("routing"),
+                            accepts = listOf("package"),
+                            hitVolume = HitVolumeData(
+                                shape = HitVolumeShape.BOX,
+                                size = listOf(4f, 2f, 2f)
+                            )
+                        )
+                    )
+                ),
+                MeshData(
+                    id = "package-hover",
+                    visible = false,
+                    geometryType = GeometryType.BOX,
+                    geometryParams = GeometryParams(width = 1.2f, height = 1.2f, depth = 1.2f)
+                ),
+                MeshData(
+                    id = "target-hover",
+                    position = listOf(1f, 0f, 1f),
+                    visible = false,
+                    geometryType = GeometryType.BOX,
+                    geometryParams = GeometryParams(width = 1.4f, height = 1.4f, depth = 1.4f)
+                )
+            ),
+            settings = SceneSettings(rendererPreference = RendererPreference.WEBGL)
+        )
+        return PointerHarness(
+            host = host,
+            canvas = canvas,
+            hydrator = SigilHydrator(canvas, scene, sceneEventBindings = hoverBindings)
+        )
+    }
+
+    private fun hoverBinding(
+        interactionId: String,
+        nodeId: String,
+        eventType: String,
+        visible: Boolean
+    ): SigilSceneEventBinding = SigilSceneEventBinding(
+        match = SigilSceneEventMatch(type = eventType, interactionId = interactionId),
+        optimisticPatch = ScenePatch(nodes = listOf(SceneNodePatch(id = nodeId, visible = visible))),
+        suppressWhilePending = false,
+        reloadOnSuccess = false,
+        preventDefault = false,
+        stopPropagation = false
+    )
 
     private fun installPointerCaptureShim(canvas: HTMLCanvasElement) {
         var capturedPointerId: Int? = null
