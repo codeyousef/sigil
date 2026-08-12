@@ -16,6 +16,10 @@ class SigilAssetsTextFontTest {
         assertTrue(script.contains("screenLayer"))
         assertTrue(script.contains("modelUrl"))
         assertTrue(script.contains("interactionEnabled"))
+        assertTrue(script.contains("pointercancel"))
+        assertTrue(script.contains("lostpointercapture"))
+        assertTrue(script.contains("setPointerCapture"))
+        assertTrue(script.contains("cancelled"))
     }
 
     @Test

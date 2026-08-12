@@ -2,6 +2,17 @@
 
 ## [Unreleased]
 
+## [0.4.3.2] - 2026-08-12
+
+### Fixed
+
+- Unified hydrated scene interactions and orbit controls on browser Pointer Events so mouse, pen, and single-touch input share smooth drag behavior with pointer capture outside the canvas.
+- Kept secondary pointers out of active gestures, used touch-tolerant drag thresholds, and restored dragged nodes without dispatching a drop when pointer capture is cancelled or lost.
+
+### Tests
+
+- Added JS coverage for pointer ownership, mouse/pen and touch drag thresholds, click suppression, and cancelled-drag source restoration with no drop dispatch.
+
 ## [0.4.3.1] - 2026-07-11
 
 ### Fixed

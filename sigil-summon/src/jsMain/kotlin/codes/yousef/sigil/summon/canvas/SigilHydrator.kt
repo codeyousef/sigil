@@ -122,6 +122,7 @@ import org.w3c.dom.events.Event
 import org.w3c.dom.events.KeyboardEvent
 import org.w3c.dom.events.MouseEvent
 import org.w3c.dom.events.WheelEvent
+import org.w3c.dom.pointerevents.PointerEvent
 import kotlin.js.ExperimentalJsExport
 import kotlin.math.PI
 import kotlin.math.pow
@@ -166,6 +167,24 @@ private data class DropEvaluation(
     val accepted: Boolean,
     val result: String
 )
+
+internal data class SigilCancelledDragState(
+    val sourcePosition: Vector3,
+    val targetState: String?,
+    val accepted: Boolean,
+    val result: String,
+    val dispatchDrop: Boolean
+)
+
+internal object SigilDragCancellation {
+    fun stateFor(session: SigilDragSession): SigilCancelledDragState = SigilCancelledDragState(
+        sourcePosition = session.startNodePosition.clone(),
+        targetState = null,
+        accepted = false,
+        result = "cancelled",
+        dispatchDrop = false
+    )
+}
 
 private data class RuntimeScreenLayer(
     val data: ScreenLayerData,
@@ -271,6 +290,7 @@ class SigilHydrator(
     private var interactionCleanup: (() -> Unit)? = null
     private val raycaster = Raycaster()
     private val dragGesture = SigilDragGestureTracker()
+    private var activeInputPointerId: Int? = null
     private var pendingDrag: PendingDrag? = null
     private var activeDrag: ActiveDrag? = null
     private var hoverDropTarget: Object3D? = null
@@ -611,6 +631,10 @@ class SigilHydrator(
     internal fun hydratedTextMeshCountForTesting(): Int = nodeMap.values.count { node ->
         node is Group && node.userData[SIGIL_TEXT_DATA_KEY] is TextData && node.children.isNotEmpty()
     }
+
+    internal fun nodePositionForTesting(nodeId: String): Vector3? = nodeMap[nodeId]?.position?.clone()
+
+    internal fun cameraPositionForTesting(): Vector3? = camera?.position?.clone()
 
     fun dispose() {
         stop()
@@ -1637,19 +1661,38 @@ class SigilHydrator(
 
         canvas.style.setProperty("touch-action", "none")
 
-        val mouseDown: (Event) -> Unit = mouseDown@{ event ->
-            val mouseEvent = event as? MouseEvent ?: return@mouseDown
-            dragGesture.beginPointer(pointerPosition(mouseEvent))
-            pendingDrag = null
-            val hit = pickInteractionHit(mouseEvent) ?: return@mouseDown
+        val pointerDown: (Event) -> Unit = pointerDown@{ event ->
+            val pointerEvent = event as? PointerEvent ?: return@pointerDown
+            if (!pointerEvent.isPrimary) return@pointerDown
+            if (activeInputPointerId != null) {
+                if (dragGesture.hasActivePointer()) suppressControlGesture(pointerEvent)
+                return@pointerDown
+            }
+
+            val hit = pickInteractionHit(pointerEvent) ?: return@pointerDown
             val node = hit.node
-            val interaction = interactionForNode(node) ?: return@mouseDown
-            suppressControlGesture(mouseEvent)
-            dispatchSceneEvent("pointerdown", mouseEvent, node, hit.intersection)
+            val interaction = interactionForNode(node) ?: return@pointerDown
+            if (!beginInputPointer(pointerEvent)) return@pointerDown
+            if (!dragGesture.beginPointer(
+                    pointerId = pointerEvent.pointerId,
+                    position = pointerPosition(pointerEvent),
+                    pointerType = pointerEvent.pointerType,
+                    isPrimary = pointerEvent.isPrimary
+                )
+            ) {
+                endInputPointer(pointerEvent.pointerId)
+                return@pointerDown
+            }
+
+            pendingDrag = null
+            capturePointer(pointerEvent.pointerId)
+            suppressControlGesture(pointerEvent)
+            dispatchSceneEvent("pointerdown", pointerEvent, node, hit.intersection)
 
             val drag = interaction.drag
             if (drag?.enabled == true) {
-                val constraint = beginDrag(mouseEvent, node, interaction, hit.intersection.point) ?: return@mouseDown
+                val constraint = beginDrag(pointerEvent, node, interaction, hit.intersection.point)
+                    ?: return@pointerDown
                 pendingDrag = PendingDrag(
                     source = node,
                     sourceInteraction = interaction,
@@ -1659,12 +1702,21 @@ class SigilHydrator(
             }
         }
 
-        val mouseMove: (Event) -> Unit = mouseMove@{ event ->
-            val mouseEvent = event as? MouseEvent ?: return@mouseMove
+        val pointerMove: (Event) -> Unit = pointerMove@{ event ->
+            val pointerEvent = event as? PointerEvent ?: return@pointerMove
+            if (!pointerEvent.isPrimary) {
+                if (dragGesture.hasActivePointer()) suppressControlGesture(pointerEvent)
+                return@pointerMove
+            }
+            if (activeInputPointerId != null && !ownsInputPointer(pointerEvent.pointerId)) {
+                if (dragGesture.hasActivePointer()) suppressControlGesture(pointerEvent)
+                return@pointerMove
+            }
+
             pendingDrag?.let { pending ->
-                suppressControlGesture(mouseEvent)
-                if (!dragGesture.movedBeyondThreshold(pointerPosition(mouseEvent))) {
-                    return@mouseMove
+                suppressControlGesture(pointerEvent)
+                if (!dragGesture.movedBeyondThreshold(pointerEvent.pointerId, pointerPosition(pointerEvent))) {
+                    return@pointerMove
                 }
 
                 val drag = ActiveDrag(
@@ -1676,58 +1728,73 @@ class SigilHydrator(
                 activeDrag = drag
                 updateHoverDropTarget(null)
                 setCanvasCursor(CursorHint.GRABBING)
-                dispatchSceneEvent("dragstart", mouseEvent, pending.source, pending.startIntersection, drag)
-                updateActiveDrag(drag, mouseEvent)
-                return@mouseMove
+                dispatchSceneEvent("dragstart", pointerEvent, pending.source, pending.startIntersection, drag)
+                updateActiveDrag(drag, pointerEvent)
+                return@pointerMove
             }
 
             val drag = activeDrag
             if (drag != null) {
-                suppressControlGesture(mouseEvent)
-                updateActiveDrag(drag, mouseEvent)
-                return@mouseMove
+                suppressControlGesture(pointerEvent)
+                updateActiveDrag(drag, pointerEvent)
+                return@pointerMove
             }
 
-            val hit = pickInteractive(mouseEvent)
+            val hit = pickInteractive(pointerEvent)
             val node = hit.second
             updateHoverDropTarget(node?.takeIf { isDropTargetNode(it) })
             if (node != null) {
                 interactionForNode(node)?.let { setCanvasCursor(it.cursor) }
-                dispatchSceneEvent("pointermove", mouseEvent, node, hit.first)
+                dispatchSceneEvent("pointermove", pointerEvent, node, hit.first)
             } else {
                 setCanvasCursor(CursorHint.AUTO)
             }
         }
 
-        val mouseUp: (Event) -> Unit = mouseUp@{ event ->
-            val mouseEvent = event as? MouseEvent ?: return@mouseUp
+        val pointerUp: (Event) -> Unit = pointerUp@{ event ->
+            val pointerEvent = event as? PointerEvent ?: return@pointerUp
+            if (!pointerEvent.isPrimary || !dragGesture.ownsPointer(pointerEvent.pointerId)) {
+                return@pointerUp
+            }
+
+            suppressControlGesture(pointerEvent)
             val drag = activeDrag
             if (drag != null) {
-                suppressControlGesture(mouseEvent)
                 drag.target?.let { target ->
-                    dispatchSceneEvent("drop", mouseEvent, target, null, drag)
+                    dispatchSceneEvent("drop", pointerEvent, target, null, drag)
                     setDropTargetState(target, null)
                 } ?: run {
                     drag.targetAccepted = false
                     drag.dropResult = "no-target"
-                    dispatchSceneEvent("drop", mouseEvent, drag.source, null, drag)
+                    dispatchSceneEvent("drop", pointerEvent, drag.source, null, drag)
                 }
-                dispatchSceneEvent("dragend", mouseEvent, drag.source, null, drag)
+                dispatchSceneEvent("dragend", pointerEvent, drag.source, null, drag)
                 activeDrag = null
-                dragGesture.completeDrag()
+                dragGesture.completeDrag(pointerEvent.pointerId)
+                endInputPointer(pointerEvent.pointerId)
+                releasePointer(pointerEvent.pointerId)
                 setCanvasCursor(CursorHint.AUTO)
-                return@mouseUp
+                return@pointerUp
             }
 
             pendingDrag?.let {
                 pendingDrag = null
-                dragGesture.endWithoutDrag()
             }
 
-            val hit = pickInteractive(mouseEvent)
+            val hit = pickInteractive(pointerEvent)
             hit.second?.let { node ->
-                dispatchSceneEvent("pointerup", mouseEvent, node, hit.first)
+                dispatchSceneEvent("pointerup", pointerEvent, node, hit.first)
             }
+            dragGesture.endWithoutDrag(pointerEvent.pointerId)
+            endInputPointer(pointerEvent.pointerId)
+            releasePointer(pointerEvent.pointerId)
+        }
+
+        val pointerCancelled: (Event) -> Unit = pointerCancelled@{ event ->
+            val pointerEvent = event as? PointerEvent ?: return@pointerCancelled
+            if (!dragGesture.ownsPointer(pointerEvent.pointerId)) return@pointerCancelled
+            suppressControlGesture(pointerEvent)
+            cancelInteractionPointer(pointerEvent)
         }
 
         val click: (Event) -> Unit = click@{ event ->
@@ -1744,20 +1811,31 @@ class SigilHydrator(
             }
         }
 
-        canvas.addEventListener("mousedown", mouseDown, true)
-        canvas.addEventListener("mousemove", mouseMove, true)
-        canvas.addEventListener("mouseup", mouseUp, true)
+        canvas.addEventListener("pointerdown", pointerDown, true)
+        canvas.addEventListener("pointermove", pointerMove, true)
+        canvas.addEventListener("pointerup", pointerUp, true)
+        canvas.addEventListener("pointercancel", pointerCancelled, true)
+        canvas.addEventListener("lostpointercapture", pointerCancelled, true)
         canvas.addEventListener("click", click, true)
 
         return {
             updateHoverDropTarget(null)
             activeDrag?.target?.let { setDropTargetState(it, null) }
+            activeDrag?.let(::restoreDragSourcePosition)
             pendingDrag = null
             activeDrag = null
+            activeInputPointerId
+                ?.takeIf(dragGesture::ownsPointer)
+                ?.let { pointerId ->
+                    endInputPointer(pointerId)
+                    releasePointer(pointerId)
+                }
             dragGesture.reset()
-            canvas.removeEventListener("mousedown", mouseDown, true)
-            canvas.removeEventListener("mousemove", mouseMove, true)
-            canvas.removeEventListener("mouseup", mouseUp, true)
+            canvas.removeEventListener("pointerdown", pointerDown, true)
+            canvas.removeEventListener("pointermove", pointerMove, true)
+            canvas.removeEventListener("pointerup", pointerUp, true)
+            canvas.removeEventListener("pointercancel", pointerCancelled, true)
+            canvas.removeEventListener("lostpointercapture", pointerCancelled, true)
             canvas.removeEventListener("click", click, true)
             canvas.style.setProperty("cursor", "auto")
         }
@@ -1765,6 +1843,60 @@ class SigilHydrator(
 
     private fun pointerPosition(event: MouseEvent): SigilPointerPosition =
         SigilPointerPosition(event.clientX.toFloat(), event.clientY.toFloat())
+
+    private fun capturePointer(pointerId: Int) {
+        runCatching { canvas.setPointerCapture(pointerId) }
+    }
+
+    private fun beginInputPointer(event: PointerEvent): Boolean {
+        if (!event.isPrimary || activeInputPointerId != null) return false
+        activeInputPointerId = event.pointerId
+        return true
+    }
+
+    private fun ownsInputPointer(pointerId: Int): Boolean = activeInputPointerId == pointerId
+
+    private fun endInputPointer(pointerId: Int) {
+        if (ownsInputPointer(pointerId)) activeInputPointerId = null
+    }
+
+    private fun releasePointer(pointerId: Int) {
+        runCatching {
+            if (canvas.hasPointerCapture(pointerId)) canvas.releasePointerCapture(pointerId)
+        }
+    }
+
+    private fun cancelInteractionPointer(event: PointerEvent) {
+        val pointerId = event.pointerId
+        val drag = activeDrag
+        if (drag != null) {
+            val cancelled = SigilDragCancellation.stateFor(drag.constraint)
+            drag.target?.let { setDropTargetState(it, null) }
+            drag.source.position.copy(cancelled.sourcePosition)
+            refreshNodeWorldMatrix(drag.source)
+            drag.target = null
+            drag.targetState = cancelled.targetState
+            drag.targetAccepted = cancelled.accepted
+            drag.dropResult = cancelled.result
+            check(!cancelled.dispatchDrop)
+            dispatchSceneEvent("dragend", event, drag.source, null, drag)
+            activeDrag = null
+            dragGesture.completeDrag(pointerId)
+        } else {
+            pendingDrag = null
+            dragGesture.endWithoutDrag(pointerId)
+        }
+
+        updateHoverDropTarget(null)
+        endInputPointer(pointerId)
+        releasePointer(pointerId)
+        setCanvasCursor(CursorHint.AUTO)
+    }
+
+    private fun restoreDragSourcePosition(drag: ActiveDrag) {
+        drag.source.position.copy(drag.constraint.startNodePosition)
+        refreshNodeWorldMatrix(drag.source)
+    }
 
     private fun suppressControlGesture(event: MouseEvent) {
         event.preventDefault()
@@ -2573,40 +2705,74 @@ class SigilHydrator(
         val canvasElement = canvas
         canvasElement.style.setProperty("touch-action", "none")
 
+        var activePointerId: Int? = null
         var activeButton: PointerButton? = null
+        var lastPointerX = 0f
+        var lastPointerY = 0f
 
-        fun pointerPosition(event: MouseEvent): Pair<Float, Float> {
+        fun pointerPosition(event: PointerEvent): Pair<Float, Float> {
             val rect = canvasElement.getBoundingClientRect()
             val x = event.clientX - rect.left
             val y = event.clientY - rect.top
             return Pair(x.toFloat(), y.toFloat())
         }
 
-        val mouseDown: (Event) -> Unit = mouseDown@{ event ->
-            val mouseEvent = event as? MouseEvent ?: return@mouseDown
+        val pointerDown: (Event) -> Unit = pointerDown@{ event ->
+            val pointerEvent = event as? PointerEvent ?: return@pointerDown
+            if (activePointerId != null || !beginInputPointer(pointerEvent)) return@pointerDown
+
             activeCameraPatch = null
-            val button = toPointerButton(mouseEvent.button)
-            val (x, y) = pointerPosition(mouseEvent)
+            val button = toPointerButton(pointerEvent.button)
+            val (x, y) = pointerPosition(pointerEvent)
+            activePointerId = pointerEvent.pointerId
             activeButton = button
+            lastPointerX = x
+            lastPointerY = y
             controls.onPointerDown(x, y, button)
-            mouseEvent.preventDefault()
+            capturePointer(pointerEvent.pointerId)
+            pointerEvent.preventDefault()
         }
 
-        val mouseMove: (Event) -> Unit = mouseMove@{ event ->
-            val mouseEvent = event as? MouseEvent ?: return@mouseMove
-            val button = activeButton ?: return@mouseMove
-            val (x, y) = pointerPosition(mouseEvent)
+        val pointerMove: (Event) -> Unit = pointerMove@{ event ->
+            val pointerEvent = event as? PointerEvent ?: return@pointerMove
+            if (activePointerId != pointerEvent.pointerId) return@pointerMove
+            val button = activeButton ?: return@pointerMove
+            val (x, y) = pointerPosition(pointerEvent)
+            lastPointerX = x
+            lastPointerY = y
             controls.onPointerMove(x, y, button)
-            mouseEvent.preventDefault()
+            pointerEvent.preventDefault()
         }
 
-        val mouseUp: (Event) -> Unit = mouseUp@{ event ->
-            val mouseEvent = event as? MouseEvent ?: return@mouseUp
-            val button = activeButton ?: toPointerButton(mouseEvent.button)
-            val (x, y) = pointerPosition(mouseEvent)
+        fun finishPointer(pointerEvent: PointerEvent) {
+            if (activePointerId != pointerEvent.pointerId) return
+            val button = activeButton ?: toPointerButton(pointerEvent.button)
+            val (x, y) = pointerPosition(pointerEvent)
             controls.onPointerUp(x, y, button)
+            activePointerId = null
             activeButton = null
-            mouseEvent.preventDefault()
+            lastPointerX = x
+            lastPointerY = y
+            endInputPointer(pointerEvent.pointerId)
+            releasePointer(pointerEvent.pointerId)
+            pointerEvent.preventDefault()
+        }
+
+        val pointerUp: (Event) -> Unit = pointerUp@{ event ->
+            val pointerEvent = event as? PointerEvent ?: return@pointerUp
+            finishPointer(pointerEvent)
+        }
+
+        val pointerCancelled: (Event) -> Unit = pointerCancelled@{ event ->
+            val pointerEvent = event as? PointerEvent ?: return@pointerCancelled
+            if (activePointerId != pointerEvent.pointerId) return@pointerCancelled
+            val button = activeButton ?: PointerButton.PRIMARY
+            controls.onPointerUp(lastPointerX, lastPointerY, button)
+            activePointerId = null
+            activeButton = null
+            endInputPointer(pointerEvent.pointerId)
+            releasePointer(pointerEvent.pointerId)
+            pointerEvent.preventDefault()
         }
 
         val wheelHandler: (Event) -> Unit = wheelHandler@{ event ->
@@ -2638,18 +2804,29 @@ class SigilHydrator(
             }
         }
 
-        canvasElement.addEventListener("mousedown", mouseDown)
-        canvasElement.addEventListener("mousemove", mouseMove)
-        canvasElement.addEventListener("mouseup", mouseUp)
+        canvasElement.addEventListener("pointerdown", pointerDown)
+        canvasElement.addEventListener("pointermove", pointerMove)
+        canvasElement.addEventListener("pointerup", pointerUp)
+        canvasElement.addEventListener("pointercancel", pointerCancelled)
+        canvasElement.addEventListener("lostpointercapture", pointerCancelled)
         canvasElement.addEventListener("wheel", wheelHandler)
         canvasElement.addEventListener("contextmenu", contextMenu)
         window.addEventListener("keydown", keyDown)
         window.addEventListener("keyup", keyUp)
 
         return {
-            canvasElement.removeEventListener("mousedown", mouseDown)
-            canvasElement.removeEventListener("mousemove", mouseMove)
-            canvasElement.removeEventListener("mouseup", mouseUp)
+            activePointerId?.let { pointerId ->
+                activeButton?.let { controls.onPointerUp(lastPointerX, lastPointerY, it) }
+                activePointerId = null
+                activeButton = null
+                endInputPointer(pointerId)
+                releasePointer(pointerId)
+            }
+            canvasElement.removeEventListener("pointerdown", pointerDown)
+            canvasElement.removeEventListener("pointermove", pointerMove)
+            canvasElement.removeEventListener("pointerup", pointerUp)
+            canvasElement.removeEventListener("pointercancel", pointerCancelled)
+            canvasElement.removeEventListener("lostpointercapture", pointerCancelled)
             canvasElement.removeEventListener("wheel", wheelHandler)
             canvasElement.removeEventListener("contextmenu", contextMenu)
             window.removeEventListener("keydown", keyDown)
