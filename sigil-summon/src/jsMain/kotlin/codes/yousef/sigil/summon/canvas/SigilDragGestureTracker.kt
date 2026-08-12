@@ -6,29 +6,59 @@ internal data class SigilPointerPosition(
 )
 
 internal class SigilDragGestureTracker(
-    private val thresholdPx: Float = DEFAULT_DRAG_THRESHOLD_PX
+    private val mouseAndPenThresholdPx: Float = DEFAULT_MOUSE_AND_PEN_DRAG_THRESHOLD_PX,
+    private val touchThresholdPx: Float = DEFAULT_TOUCH_DRAG_THRESHOLD_PX
 ) {
-    private var pointerDown: SigilPointerPosition? = null
+    private data class PointerDown(
+        val pointerId: Int,
+        val position: SigilPointerPosition,
+        val thresholdPx: Float
+    )
+
+    private var pointerDown: PointerDown? = null
     private var suppressNextClick = false
 
-    fun beginPointer(position: SigilPointerPosition) {
-        pointerDown = position
+    fun beginPointer(
+        pointerId: Int,
+        position: SigilPointerPosition,
+        pointerType: String,
+        isPrimary: Boolean
+    ): Boolean {
+        if (!isPrimary || pointerDown != null) return false
+
+        pointerDown = PointerDown(
+            pointerId = pointerId,
+            position = position,
+            thresholdPx = if (pointerType.equals("touch", ignoreCase = true)) {
+                touchThresholdPx
+            } else {
+                mouseAndPenThresholdPx
+            }
+        )
         suppressNextClick = false
+        return true
     }
 
-    fun movedBeyondThreshold(position: SigilPointerPosition): Boolean {
+    fun hasActivePointer(): Boolean = pointerDown != null
+
+    fun ownsPointer(pointerId: Int): Boolean = pointerDown?.pointerId == pointerId
+
+    fun movedBeyondThreshold(pointerId: Int, position: SigilPointerPosition): Boolean {
         val start = pointerDown ?: return false
-        val dx = position.x - start.x
-        val dy = position.y - start.y
-        return dx * dx + dy * dy >= thresholdPx * thresholdPx
+        if (start.pointerId != pointerId) return false
+        val dx = position.x - start.position.x
+        val dy = position.y - start.position.y
+        return dx * dx + dy * dy >= start.thresholdPx * start.thresholdPx
     }
 
-    fun completeDrag() {
+    fun completeDrag(pointerId: Int) {
+        if (!ownsPointer(pointerId)) return
         pointerDown = null
         suppressNextClick = true
     }
 
-    fun endWithoutDrag() {
+    fun endWithoutDrag(pointerId: Int) {
+        if (!ownsPointer(pointerId)) return
         pointerDown = null
     }
 
@@ -44,6 +74,7 @@ internal class SigilDragGestureTracker(
     }
 
     private companion object {
-        const val DEFAULT_DRAG_THRESHOLD_PX = 4f
+        const val DEFAULT_MOUSE_AND_PEN_DRAG_THRESHOLD_PX = 4f
+        const val DEFAULT_TOUCH_DRAG_THRESHOLD_PX = 8f
     }
 }
